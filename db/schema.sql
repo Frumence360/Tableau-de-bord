@@ -4,8 +4,14 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  -- Incrémenté à chaque changement de mot de passe : les tokens JWT émis avant
+  -- portent l'ancienne valeur et sont donc rejetés (revue de toutes les sessions).
+  token_version INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Migration pour les bases déjà créées avant l'ajout de token_version
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS stats (
   key TEXT PRIMARY KEY,

@@ -54,6 +54,21 @@ définis dans `.env`.
   si le token expire (401) ou via le bouton "Déconnexion"
 - Limite anti brute-force sur `/api/auth/login` (10 tentatives / 15 min)
 - Limite générale sur `/api/*` (120 requêtes / minute)
+- **Révocation des sessions :** chaque token embarque un numéro de version
+  (`tv`) issu de la colonne `users.token_version`. Changer le mot de passe
+  incrémente cette version, ce qui **invalide immédiatement tous les tokens
+  émis auparavant** — y compris ceux d'autres appareils/navigateurs.
+
+## Changer le mot de passe
+**Depuis le dashboard :** clique sur le bloc utilisateur en haut à droite, saisis
+le mot de passe actuel puis le nouveau (8 caractères minimum).
+
+Le changement **déconnecte toutes les autres sessions** : les tokens existants
+deviennent invalides et leurs porteurs devront se reconnecter.
+
+**En ligne de commande :** modifie `ADMIN_PASSWORD` dans `.env` puis relance `npm run seed`.
+Le seed détecte que le mot de passe a changé et met à jour la base automatiquement
+(sans écraser tes autres données).
 
 ## Routes disponibles
 
@@ -61,6 +76,7 @@ définis dans `.env`.
 |---------|---------------------------|------|-----------------------------------------------|
 | POST    | `/api/auth/login`         | Non  | Connexion, retourne un token JWT               |
 | GET     | `/api/auth/me`            | Oui  | Vérifie/retourne l'utilisateur du token        |
+| POST    | `/api/auth/change-password` | Oui | Change le mot de passe `{currentPassword, newPassword}` |
 | GET     | `/api/stats`              | Oui  | Sites web, clients, commandes, revenus         |
 | GET     | `/api/visits?range=30d`   | Oui  | Série de visites (`7d`, `30d`, `90d`)          |
 | GET     | `/api/traffic-sources`    | Oui  | Répartition des sources de trafic              |

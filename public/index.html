@@ -129,6 +129,23 @@
   .api-status.offline .sdot{background:#ff5c6a;box-shadow:0 0 6px #ff5c6a;}
   .api-status .logout{color:var(--blue-light);cursor:pointer;font-weight:600;}
 
+  .modal-overlay{position:fixed;inset:0;background:rgba(2,6,16,0.75);backdrop-filter:blur(5px);display:none;align-items:center;justify-content:center;z-index:110;}
+  .modal-card{width:360px;background:linear-gradient(160deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012));border:1px solid var(--border-2);border-radius:18px;padding:26px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+  .modal-head h2{font-size:17px;font-weight:800;}
+  .modal-close{background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:20px;line-height:1;padding:2px 4px;border-radius:6px;}
+  .modal-close:hover{color:#fff;background:rgba(255,255,255,0.06);}
+  .modal-card label{font-size:12.5px;color:var(--text-dim);display:block;margin-bottom:6px;}
+  .modal-card input{width:100%;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid var(--border-2);color:#fff;font-size:13.5px;margin-bottom:14px;font-family:inherit;}
+  .modal-card input:focus{outline:none;border-color:var(--blue);}
+  .modal-actions{display:flex;gap:10px;margin-top:4px;}
+  .modal-actions button{flex:1;padding:11px;border-radius:10px;border:none;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;}
+  .modal-actions .btn-ghost{background:rgba(255,255,255,0.05);color:var(--text);border:1px solid var(--border-2);}
+  .modal-actions .btn-save{background:linear-gradient(90deg,#2f9bff,#38c6ff);color:#04122a;}
+  .modal-msg{font-size:12.5px;margin-top:12px;min-height:16px;text-align:center;}
+  .modal-msg.ok{color:var(--green);}
+  .modal-msg.err{color:#ff5c6a;}
+
   .login-overlay{position:fixed;inset:0;background:rgba(2,6,16,0.88);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:100;}
   .login-card{width:340px;background:linear-gradient(160deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));border:1px solid var(--border-2);border-radius:18px;padding:30px 28px;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
   .login-card .mark{width:46px;height:46px;border-radius:12px;background:linear-gradient(145deg,#123a6e,#0a1e3d);border:1px solid var(--border-2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--blue-light);margin:0 auto 16px;}
@@ -190,9 +207,9 @@
       <div class="topbar-right">
         <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
         <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M9.5 20a2.5 2.5 0 0 0 5 0"/></svg><span class="dot"></span></div>
-        <div class="user-chip">
+        <div class="user-chip" id="userChip" title="Changer le mot de passe">
           <div class="avatar"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4.5 5-6 8-6s6.5 1.5 8 6"/></svg></div>
-          <div><div class="hello">Bonjour</div><div class="who">Utilisateur</div></div>
+          <div><div class="hello">Bonjour</div><div class="who" id="userName">Utilisateur</div></div>
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
         </div>
       </div>
@@ -275,6 +292,28 @@
 
 <div class="api-status" id="apiStatus"><span class="sdot"></span><span id="apiStatusText">Connexion à l'API…</span><span class="logout" id="logoutBtn">Déconnexion</span></div>
 
+<div class="modal-overlay" id="pwdOverlay">
+ <div class="modal-card">
+    <div class="modal-head">
+      <h2>Changer le mot de passe</h2>
+      <button type="button" class="modal-close" id="pwdClose" aria-label="Fermer">&times;</button>
+    </div>
+    <form id="pwdForm">
+      <label for="pwdCurrent">Mot de passe actuel</label>
+      <input type="password" id="pwdCurrent" autocomplete="current-password" required>
+      <label for="pwdNew">Nouveau mot de passe</label>
+      <input type="password" id="pwdNew" autocomplete="new-password" minlength="8" required>
+      <label for="pwdConfirm">Confirmer le nouveau mot de passe</label>
+      <input type="password" id="pwdConfirm" autocomplete="new-password" minlength="8" required>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="pwdCancel">Annuler</button>
+        <button type="submit" class="btn-save">Enregistrer</button>
+      </div>
+      <div class="modal-msg" id="pwdMsg"></div>
+    </form>
+ </div>
+</div>
+
 <script>
   const API_BASE = window.location.origin; // même serveur Express (server.js) sert l'API et ce fichier
   const TOKEN_KEY = 'fm_token';
@@ -292,7 +331,9 @@
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
     });
-    if (res.status === 401) {
+    // Certaines routes renvoient 401 pour une erreur metier (ex. mauvais mot de
+    // passe actuel) : on ne doit pas deconnecter l'utilisateur dans ce cas.
+    if (res.status === 401 && !options.allow401) {
       clearToken();
       showLogin('Session expirée, reconnecte-toi.');
       throw new Error('unauthorized');
@@ -507,6 +548,11 @@
 
       statusText.textContent = 'API connectée';
       statusEl.classList.remove('offline');
+
+      const me = await apiFetch(`${API_BASE}/api/auth/me`).then(r => r.json()).catch(() => null);
+      if (me && me.username) {
+        document.getElementById('userName').textContent = me.username;
+      }
     } catch (err) {
       if (err.message !== 'unauthorized') {
         console.error(err);
@@ -523,6 +569,71 @@
   document.getElementById('logoutBtn').addEventListener('click', () => {
     clearToken();
     showLogin();
+  });
+
+  // ---------- Changement de mot de passe ----------
+  const pwdOverlay = document.getElementById('pwdOverlay');
+  const pwdMsg = document.getElementById('pwdMsg');
+
+  function openPwdModal() {
+    pwdMsg.textContent = '';
+    pwdMsg.className = 'modal-msg';
+    document.getElementById('pwdForm').reset();
+    pwdOverlay.style.display = 'flex';
+    document.getElementById('pwdCurrent').focus();
+  }
+
+  function closePwdModal() {
+    pwdOverlay.style.display = 'none';
+  }
+
+  document.getElementById('userChip').addEventListener('click', openPwdModal);
+  document.getElementById('pwdClose').addEventListener('click', closePwdModal);
+  document.getElementById('pwdCancel').addEventListener('click', closePwdModal);
+  pwdOverlay.addEventListener('click', (e) => { if (e.target === pwdOverlay) closePwdModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePwdModal(); });
+
+  document.getElementById('pwdForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const currentPassword = document.getElementById('pwdCurrent').value;
+    const newPassword = document.getElementById('pwdNew').value;
+    const confirmPassword = document.getElementById('pwdConfirm').value;
+
+    pwdMsg.className = 'modal-msg';
+
+    if (newPassword !== confirmPassword) {
+      pwdMsg.textContent = 'Les deux nouveaux mots de passe ne correspondent pas.';
+      pwdMsg.classList.add('err');
+      return;
+    }
+    if (newPassword.length < 8) {
+      pwdMsg.textContent = 'Le nouveau mot de passe doit faire au moins 8 caractères.';
+      pwdMsg.classList.add('err');
+      return;
+    }
+
+    try {
+      const res = await apiFetch(`${API_BASE}/api/auth/change-password`, {
+        method: 'POST',
+        allow401: true, // un 401 ici = mot de passe actuel incorrect, pas une session expirée
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        pwdMsg.textContent = data.error || 'Changement impossible';
+        pwdMsg.classList.add('err');
+        return;
+      }
+      pwdMsg.textContent = 'Mot de passe modifié avec succès.';
+      pwdMsg.classList.add('ok');
+      setTimeout(closePwdModal, 1200);
+    } catch (err) {
+      if (err.message !== 'unauthorized') {
+        pwdMsg.textContent = 'Impossible de contacter le serveur.';
+        pwdMsg.classList.add('err');
+      }
+    }
   });
 
   // Point d'entrée : si on a déjà un token, on tente de charger directement ;

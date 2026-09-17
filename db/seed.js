@@ -12,7 +12,7 @@ async function seed() {
   const username = process.env.ADMIN_USERNAME || 'admin';
   const password = process.env.ADMIN_PASSWORD || 'change-ce-mot-de-passe';
   const { rows: existingUsers } = await pool.query(
-    'SELECT id FROM users WHERE username = $1', [username]
+    'SELECT id, password_hash FROM users WHERE username = $1', [username]
   );
 
   if (existingUsers.length === 0) {
@@ -21,8 +21,14 @@ async function seed() {
       'INSERT INTO users (username, password_hash) VALUES ($1, $2)', [username, hash]
     );
     console.log(`✔ Utilisateur admin créé : ${username}`);
+  } else if (!bcrypt.compareSync(password, existingUsers[0].password_hash)) {
+    // Le mot de passe du .env a changé : on aligne la base pour éviter
+    // le piège classique "j'ai modifié ADMIN_PASSWORD mais je ne peux plus me connecter".
+    const hash = bcrypt.hashSync(password, 10);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, existingUsers[0].id]);
+    console.log(`✔ Mot de passe de "${username}" mis à jour depuis ADMIN_PASSWORD.`);
   } else {
-    console.log(`— Utilisateur admin "${username}" existe déjà, rien à faire.`);
+    console.log(`— Utilisateur admin "${username}" existe déjà avec le bon mot de passe, rien à faire.`);
   }
 
   // ---------- Stats ----------
