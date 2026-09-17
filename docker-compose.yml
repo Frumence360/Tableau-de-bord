@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: frumence
+      POSTGRES_PASSWORD: frumence
+      POSTGRES_DB: frumence_dashboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - frumence_pgdata:/var/lib/postgresql/data
+
+volumes:
+  frumence_pgdata:

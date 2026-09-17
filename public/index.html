@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frumence Maintenance — Tableau de bord</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg-0:#040a17;--bg-1:#071227;--bg-2:#0a1830;--panel:#0b1c3a;--panel-2:#0d2144;
+    --border:rgba(93,164,255,0.14);--border-2:rgba(93,164,255,0.24);
+    --blue:#2f9bff;--blue-light:#6cc3ff;--cyan:#38e5ff;--green:#33d17a;
+    --purple:#8b6bff;--orange:#ff9d3d;--pink:#ff4fa3;
+    --text:#eaf2ff;--text-dim:#9db2d6;--text-faint:#5f7699;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:var(--bg-0);color:var(--text);font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;min-height:100vh;}
+  body{background:radial-gradient(1100px 600px at 85% -10%, rgba(47,155,255,0.16), transparent 60%),radial-gradient(900px 500px at 15% 0%, rgba(56,229,255,0.10), transparent 55%),linear-gradient(180deg,#040a17 0%, #050d1e 40%, #040a17 100%);background-attachment:fixed;}
+  a{color:inherit;text-decoration:none;}
+  .app{display:grid;grid-template-columns:250px 1fr;min-height:100vh;}
+  .sidebar{background:linear-gradient(180deg, rgba(9,20,42,0.9), rgba(4,10,23,0.9));border-right:1px solid var(--border);padding:22px 16px 24px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;}
+  .brand{display:flex;align-items:center;gap:12px;padding:6px 8px 22px;}
+  .brand .mark{width:42px;height:42px;border-radius:10px;background:linear-gradient(145deg,#123a6e,#0a1e3d);border:1px solid var(--border-2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:0.03em;color:var(--blue-light);box-shadow:0 0 18px rgba(47,155,255,0.25) inset;}
+  .brand .name{font-size:14.5px;font-weight:700;}
+  .brand .sub{font-size:10.5px;color:var(--text-faint);margin-top:1px;}
+  nav{display:flex;flex-direction:column;gap:3px;margin-top:6px;}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:10px;font-size:14.5px;color:var(--text-dim);cursor:pointer;transition:background .15s ease,color .15s ease;}
+  .nav-item svg{width:18px;height:18px;flex-shrink:0;opacity:0.85;}
+  .nav-item:hover{background:rgba(93,164,255,0.06);color:var(--text);}
+  .nav-item.active{color:#fff;background:linear-gradient(90deg, rgba(47,155,255,0.22), rgba(47,155,255,0.05));box-shadow:inset 0 0 0 1px rgba(93,164,255,0.3);}
+  .nav-item.active svg{opacity:1;}
+  .nav-badge{margin-left:auto;background:var(--blue);color:#04112a;font-size:11px;font-weight:700;padding:1px 7px;border-radius:20px;}
+  .sidebar-foot{margin-top:auto;border-radius:16px;padding:20px 16px 18px;background:linear-gradient(160deg, rgba(47,155,255,0.14), rgba(9,20,42,0.5));border:1px solid var(--border-2);text-align:center;position:relative;overflow:hidden;}
+  .sidebar-foot::before{content:'';position:absolute;inset:0;background:radial-gradient(120px 80px at 50% 0%, rgba(56,229,255,0.25), transparent 70%);}
+  .sidebar-foot svg{width:30px;height:30px;color:var(--cyan);margin-bottom:10px;position:relative;}
+  .sidebar-foot p{position:relative;font-size:13.5px;line-height:1.4;color:var(--text-dim);}
+  .sidebar-foot p b{color:#fff;font-weight:700;}
+  .sidebar-foot .underline{width:34px;height:2px;background:var(--cyan);margin:10px auto 0;position:relative;box-shadow:0 0 8px var(--cyan);}
+  main{padding:22px 30px 40px;min-width:0;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--border);}
+  .topbar .tagline{font-size:13.5px;color:var(--text-dim);line-height:1.45;position:relative;}
+  .topbar .tagline b{color:#fff;font-weight:700;}
+  .topbar .tagline .swoosh{position:absolute;left:0;bottom:-8px;width:78%;height:6px;border-bottom:2px solid var(--cyan);border-radius:50%;opacity:0.7;}
+  .topbar-right{display:flex;align-items:center;gap:16px;}
+  .icon-btn{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.04);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;position:relative;color:var(--text-dim);cursor:pointer;}
+  .icon-btn svg{width:17px;height:17px;}
+  .icon-btn .dot{position:absolute;top:8px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--pink);box-shadow:0 0 6px var(--pink);}
+  .user-chip{display:flex;align-items:center;gap:10px;cursor:pointer;}
+  .avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(145deg,#3a8dff,#1c4fa8);display:flex;align-items:center;justify-content:center;}
+  .avatar svg{width:18px;height:18px;color:#fff;}
+  .user-chip .hello{font-size:12px;color:var(--text-faint);}
+  .user-chip .who{font-size:13.5px;font-weight:700;color:#fff;}
+  .user-chip .chev{width:14px;height:14px;color:var(--text-faint);margin-left:2px;}
+  .hero{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:18px;margin-bottom:24px;}
+  .hero h1{font-size:34px;font-weight:800;letter-spacing:-0.01em;line-height:1.15;}
+  .hero h1 .accent{background:linear-gradient(90deg,var(--blue-light),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .hero .desc{color:var(--blue-light);font-size:15px;margin-top:6px;font-weight:500;}
+  .hero-actions{display:flex;gap:12px;flex-wrap:wrap;}
+  .pill{display:flex;align-items:center;gap:8px;padding:11px 16px;border-radius:11px;font-size:13.5px;font-weight:600;background:rgba(255,255,255,0.03);border:1px solid var(--border-2);color:var(--text);cursor:pointer;}
+  .pill svg{width:15px;height:15px;color:var(--text-dim);}
+  .btn-primary{background:linear-gradient(90deg,#2f9bff,#38c6ff);color:#04122a;border:none;box-shadow:0 6px 20px rgba(47,155,255,0.35);}
+  .btn-primary svg{color:#04122a;}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:20px;}
+  .stat-card{background:linear-gradient(160deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));border:1px solid var(--border);border-radius:16px;padding:18px 20px;}
+  .stat-top{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+  .stat-icon{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(0,0,0,0.35);}
+  .stat-icon svg{width:20px;height:20px;color:#fff;}
+  .icon-blue{background:linear-gradient(150deg,#3aa0ff,#1a5fc4);}
+  .icon-green{background:linear-gradient(150deg,#38d67f,#159a52);}
+  .icon-purple{background:linear-gradient(150deg,#9b7bff,#6a45e0);}
+  .icon-orange{background:linear-gradient(150deg,#ffb35c,#e07a1f);}
+  .stat-label{font-size:13.5px;color:var(--text-dim);font-weight:600;}
+  .stat-value{font-size:28px;font-weight:800;letter-spacing:-0.01em;}
+  .stat-delta{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;color:var(--text-faint);}
+  .stat-delta .up{color:var(--green);font-weight:700;display:flex;align-items:center;gap:3px;}
+  .stat-delta .down{color:#ff5c6a;font-weight:700;display:flex;align-items:center;gap:3px;}
+  .stat-delta svg{width:11px;height:11px;}
+  .panel{background:linear-gradient(160deg, rgba(255,255,255,0.025), rgba(255,255,255,0.006));border:1px solid var(--border);border-radius:16px;padding:20px 22px;}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+  .panel-title{display:flex;align-items:center;gap:10px;font-size:15.5px;font-weight:700;}
+  .panel-title svg{width:18px;height:18px;color:var(--blue-light);}
+  select.select-chip{font-size:12.5px;color:var(--text-dim);background:rgba(255,255,255,0.03);border:1px solid var(--border-2);padding:7px 12px;border-radius:9px;cursor:pointer;font-family:inherit;}
+  select.select-chip option{background:#0b1c3a;color:#fff;}
+  .row-2{display:grid;grid-template-columns:2.15fr 1fr;gap:18px;margin-bottom:18px;}
+  .visits-count{font-size:30px;font-weight:800;margin:2px 0 14px;display:flex;align-items:center;gap:10px;}
+  .visits-count .up{font-size:14px;color:var(--green);display:flex;align-items:center;gap:3px;font-weight:700;}
+  .visits-count .down{font-size:14px;color:#ff5c6a;display:flex;align-items:center;gap:3px;font-weight:700;}
+  .visits-count svg{width:13px;height:13px;}
+  .chart-wrap{height:230px;position:relative;}
+  .donut-wrap{display:flex;flex-direction:column;align-items:center;margin-top:6px;}
+  .donut-canvas-box{position:relative;width:180px;height:180px;}
+  .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .donut-center .n{font-size:20px;font-weight:800;}
+  .donut-center .l{font-size:11.5px;color:var(--text-faint);}
+  .legend{width:100%;margin-top:18px;display:flex;flex-direction:column;gap:11px;}
+  .legend-row{display:flex;align-items:center;font-size:13px;}
+  .legend-dot{width:9px;height:9px;border-radius:50%;margin-right:10px;flex-shrink:0;}
+  .legend-row .lbl{color:var(--text-dim);flex:1;}
+  .legend-row .val{font-weight:700;color:#fff;}
+  .row-3{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;margin-top:18px;}
+  .map-box{position:relative;border-radius:12px;overflow:hidden;height:190px;margin-top:10px;background:radial-gradient(circle at 30% 40%, rgba(47,155,255,0.18), transparent 55%),#061229;border:1px solid var(--border);}
+  .map-box svg{width:100%;height:100%;display:block;opacity:0.9;}
+  .map-dot{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px 3px rgba(56,229,255,0.6);}
+  .map-dot::after{content:'';position:absolute;inset:-6px;border-radius:50%;border:1px solid rgba(56,229,255,0.5);}
+  .country-list{margin-top:16px;display:flex;flex-direction:column;gap:12px;}
+  .country-row{display:flex;align-items:center;font-size:13.5px;}
+  .flag{width:22px;height:16px;border-radius:3px;margin-right:12px;flex-shrink:0;object-fit:cover;box-shadow:0 0 0 1px rgba(255,255,255,0.08);}
+  .country-row .cname{color:var(--text-dim);flex:1;}
+  .country-row .cval{font-weight:700;color:#fff;}
+  .see-all{font-size:12.5px;color:var(--blue-light);font-weight:600;display:flex;align-items:center;gap:4px;cursor:pointer;}
+  .see-all svg{width:12px;height:12px;}
+  .project-list{margin-top:14px;display:flex;flex-direction:column;gap:10px;}
+  .project-row{display:flex;align-items:center;gap:13px;padding:10px;border-radius:12px;transition:background .15s;}
+  .project-row:hover{background:rgba(255,255,255,0.03);}
+  .thumb{width:46px;height:46px;border-radius:10px;flex-shrink:0;background-size:cover;background-position:center;border:1px solid var(--border-2);}
+  .p-info{flex:1;min-width:0;}
+  .p-title{font-size:13.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .p-date{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
+  .status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap;}
+  .status .sdot{width:7px;height:7px;border-radius:50%;}
+  .status.done{color:var(--green);}
+  .status.done .sdot{background:var(--green);box-shadow:0 0 6px var(--green);}
+  .status.progress{color:var(--blue-light);}
+  .status.progress .sdot{background:var(--blue-light);box-shadow:0 0 6px var(--blue-light);}
+  .more-dots{color:var(--text-faint);font-size:18px;letter-spacing:1px;cursor:pointer;padding:0 4px;}
+  .skeleton{opacity:0.35;filter:blur(1px);}
+  .api-status{position:fixed;bottom:14px;right:18px;font-size:11.5px;padding:6px 12px;border-radius:20px;border:1px solid var(--border-2);background:rgba(6,15,34,0.9);color:var(--text-faint);display:flex;align-items:center;gap:10px;z-index:20;}
+  .api-status .sdot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);}
+  .api-status.offline .sdot{background:#ff5c6a;box-shadow:0 0 6px #ff5c6a;}
+  .api-status .logout{color:var(--blue-light);cursor:pointer;font-weight:600;}
+
+  .login-overlay{position:fixed;inset:0;background:rgba(2,6,16,0.88);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:100;}
+  .login-card{width:340px;background:linear-gradient(160deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));border:1px solid var(--border-2);border-radius:18px;padding:30px 28px;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
+  .login-card .mark{width:46px;height:46px;border-radius:12px;background:linear-gradient(145deg,#123a6e,#0a1e3d);border:1px solid var(--border-2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--blue-light);margin:0 auto 16px;}
+  .login-card h2{font-size:19px;font-weight:800;text-align:center;margin-bottom:4px;}
+  .login-card .sub{font-size:12.5px;color:var(--text-faint);text-align:center;margin-bottom:22px;}
+  .login-card label{font-size:12.5px;color:var(--text-dim);display:block;margin-bottom:6px;}
+  .login-card input{width:100%;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid var(--border-2);color:#fff;font-size:13.5px;margin-bottom:14px;font-family:inherit;}
+  .login-card input:focus{outline:none;border-color:var(--blue);}
+  .login-card button{width:100%;padding:12px;border-radius:10px;border:none;background:linear-gradient(90deg,#2f9bff,#38c6ff);color:#04122a;font-weight:700;font-size:13.5px;cursor:pointer;margin-top:4px;}
+  .login-error{color:#ff5c6a;font-size:12.5px;margin-top:10px;text-align:center;min-height:16px;}
+  .app.blurred{filter:blur(4px);pointer-events:none;user-select:none;}
+  @media (max-width:1180px){.stats{grid-template-columns:repeat(2,1fr);}.row-2,.row-3{grid-template-columns:1fr;}}
+  @media (max-width:820px){.app{grid-template-columns:1fr;}.sidebar{display:none;}.stats{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="mark">FM</div>
+    <h2>Frumence Maintenance</h2>
+    <div class="sub">Connecte-toi pour accéder au tableau de bord</div>
+    <form id="loginForm">
+      <label for="loginUser">Nom d'utilisateur</label>
+      <input type="text" id="loginUser" autocomplete="username" required>
+      <label for="loginPass">Mot de passe</label>
+      <input type="password" id="loginPass" autocomplete="current-password" required>
+      <button type="submit">Se connecter</button>
+      <div class="login-error" id="loginError"></div>
+    </form>
+  </div>
+</div>
+
+<div class="app" id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">FM</div>
+      <div><div class="name">FRUMENCE</div><div class="sub">MAINTENANCE</div></div>
+    </div>
+    <nav>
+      <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>Tableau de bord</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Sites web</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c1-3.5 3.6-5.5 6.5-5.5s5.5 2 6.5 5.5"/><circle cx="17" cy="8.5" r="2.4"/><path d="M16 14.7c2.2.4 3.9 2.1 4.7 5.3"/></svg>Clients</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Statistiques</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="19" r="1.4"/><circle cx="18" cy="19" r="1.4"/><path d="M2 3h2l2.4 12.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 2-1.6L21 7H6"/></svg>Commandes</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-3 3-2-2 3-3Z"/></svg>Maintenance</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 1 1-4-7.2"/><path d="M21 4v6h-6"/></svg>Messages<span class="nav-badge">3</span></div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9c.2.7.8 1.2 1.6 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1Z"/></svg>Paramètres</div>
+    </nav>
+    <div class="sidebar-foot">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2s5 3 5 9a5 5 0 0 1-10 0c0-6 5-9 5-9Z"/><path d="M9 16.5 6 21l3.5-1M15 16.5l3 4.5-3.5-1"/></svg>
+      <p><b>L'innovation</b><br>au service de<br>vos ambitions !</p>
+      <div class="underline"></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="tagline"><b>Des solutions digitales</b><br>pour une croissance réelle !<div class="swoosh"></div></div>
+      <div class="topbar-right">
+        <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+        <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M9.5 20a2.5 2.5 0 0 0 5 0"/></svg><span class="dot"></span></div>
+        <div class="user-chip">
+          <div class="avatar"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4.5 5-6 8-6s6.5 1.5 8 6"/></svg></div>
+          <div><div class="hello">Bonjour</div><div class="who">Utilisateur</div></div>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div>
+        <h1>Bienvenue sur <span class="accent">votre tableau de bord</span></h1>
+        <div class="desc">Suivez vos performances, gérez vos projets et développez votre activité.</div>
+      </div>
+      <div class="hero-actions">
+        <div class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>01 Mars 2025 – 31 Mars 2025<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></div>
+        <div class="pill btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nouveau projet</div>
+      </div>
+    </div>
+
+    <div class="stats" id="statsGrid"><!-- injecté par JS --></div>
+
+    <div class="row-2">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l5-6 4 3 5-7 4 5"/></svg>Visites du site</div>
+          <select class="select-chip" id="rangeSelect">
+            <option value="7d">7 derniers jours</option>
+            <option value="30d" selected>30 derniers jours</option>
+            <option value="90d">90 derniers jours</option>
+          </select>
+        </div>
+        <div class="visits-count" id="visitsCount">—</div>
+        <div class="chart-wrap"><canvas id="visitsChart"></canvas></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12A9 9 0 1 1 12 3v9Z"/><path d="M21 12a9 9 0 0 0-9-9v9Z"/></svg>Sources de trafic</div></div>
+        <div class="donut-wrap">
+          <div class="donut-canvas-box">
+            <canvas id="donutChart"></canvas>
+            <div class="donut-center"><div class="n" id="donutCenterN">—</div><div class="l">Visites</div></div>
+          </div>
+          <div class="legend" id="trafficLegend"><!-- injecté par JS --></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row-3">
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></svg>Pays visiteurs</div></div>
+        <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:18px;align-items:center;">
+          <div class="map-box">
+            <svg viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet">
+              <g fill="#123a6e" stroke="#1c4d8c" stroke-width="1">
+                <path d="M120 90 L200 80 L230 120 L200 160 L150 170 L110 140 Z"/>
+                <path d="M250 60 L420 50 L460 90 L440 140 L350 150 L280 120 Z"/>
+                <path d="M260 170 L330 165 L360 230 L320 300 L280 320 L250 250 Z"/>
+                <path d="M420 100 L560 90 L610 140 L580 200 L470 190 L430 150 Z"/>
+                <path d="M580 220 L680 210 L720 270 L660 320 L600 300 Z"/>
+              </g>
+            </svg>
+            <div class="map-dot" style="left:23%; top:30%;"></div>
+            <div class="map-dot" style="left:47%; top:22%;"></div>
+            <div class="map-dot" style="left:46%; top:52%;"></div>
+            <div class="map-dot" style="left:64%; top:36%;"></div>
+            <div class="map-dot" style="left:80%; top:58%;"></div>
+            <div class="map-dot" style="left:35%; top:68%;"></div>
+          </div>
+          <div class="country-list" id="countryList"><!-- injecté par JS --></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Projets récents</div>
+          <div class="see-all">Voir tout <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        </div>
+        <div class="project-list" id="projectList"><!-- injecté par JS --></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="api-status" id="apiStatus"><span class="sdot"></span><span id="apiStatusText">Connexion à l'API…</span><span class="logout" id="logoutBtn">Déconnexion</span></div>
+
+<script>
+  const API_BASE = window.location.origin; // même serveur Express (server.js) sert l'API et ce fichier
+  const TOKEN_KEY = 'fm_token';
+
+  const getToken = () => localStorage.getItem(TOKEN_KEY);
+  const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
+  const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
+  async function apiFetch(url, options = {}) {
+    const token = getToken();
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    });
+    if (res.status === 401) {
+      clearToken();
+      showLogin('Session expirée, reconnecte-toi.');
+      throw new Error('unauthorized');
+    }
+    return res;
+  }
+
+  function showLogin(message) {
+    document.getElementById('loginOverlay').style.display = 'flex';
+    document.getElementById('app').classList.add('blurred');
+    document.getElementById('loginError').textContent = message || '';
+  }
+
+  function hideLogin() {
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('app').classList.remove('blurred');
+  }
+
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('loginUser').value.trim();
+    const password = document.getElementById('loginPass').value;
+    const errorEl = document.getElementById('loginError');
+    errorEl.textContent = '';
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error || 'Connexion impossible';
+        return;
+      }
+      setToken(data.token);
+      hideLogin();
+      loadDashboard();
+    } catch (err) {
+      errorEl.textContent = 'Impossible de contacter le serveur';
+    }
+  });
+
+  const fmtInt = (n) => n.toLocaleString('fr-FR');
+  const fmtUSD = (n) => n.toLocaleString('fr-FR') + ' $';
+  const upDownSpan = (pct) => {
+    const cls = pct >= 0 ? 'up' : 'down';
+    const arrow = pct >= 0
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 15 6-6 6 6"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>';
+    return `<span class="${cls}">${arrow}${pct >= 0 ? '+' : ''}${pct} %</span>`;
+  };
+
+  const ICONS = {
+    sitesWeb: `<div class="stat-icon icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></svg></div>`,
+    clients: `<div class="stat-icon icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c1-3.5 3.6-5.5 6.5-5.5s5.5 2 6.5 5.5"/><circle cx="17" cy="8.5" r="2.4"/><path d="M16 14.7c2.2.4 3.9 2.1 4.7 5.3"/></svg></div>`,
+    commandes: `<div class="stat-icon icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="19" r="1.4"/><circle cx="18" cy="19" r="1.4"/><path d="M2 3h2l2.4 12.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 2-1.6L21 7H6"/></svg></div>`,
+    revenus: `<div class="stat-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V11M10 19V5M16 19v-6M20 19V9"/></svg></div>`
+  };
+
+  function renderStats(stats) {
+    const grid = document.getElementById('statsGrid');
+    const items = [
+      { key: 'sitesWeb', label: 'Sites web', value: fmtInt(stats.sitesWeb.value), delta: stats.sitesWeb.deltaPct },
+      { key: 'clients', label: 'Clients', value: fmtInt(stats.clients.value), delta: stats.clients.deltaPct },
+      { key: 'commandes', label: 'Commandes', value: fmtInt(stats.commandes.value), delta: stats.commandes.deltaPct },
+      { key: 'revenus', label: 'Revenus', value: fmtUSD(stats.revenus.value), delta: stats.revenus.deltaPct }
+    ];
+    grid.innerHTML = items.map(it => `
+      <div class="stat-card">
+        <div class="stat-top">${ICONS[it.key]}<div class="stat-label">${it.label}</div></div>
+        <div class="stat-value">${it.value}</div>
+        <div class="stat-delta">${upDownSpan(it.delta)} vs mois dernier</div>
+      </div>
+    `).join('');
+  }
+
+  function renderTrafficLegend(sources) {
+    document.getElementById('trafficLegend').innerHTML = sources.map(s => `
+      <div class="legend-row">
+        <span class="legend-dot" style="background:${s.color}"></span>
+        <span class="lbl">${s.label}</span>
+        <span class="val">${s.pct} %</span>
+      </div>
+    `).join('');
+  }
+
+  function renderCountries(countries) {
+    document.getElementById('countryList').innerHTML = countries.map(c => `
+      <div class="country-row">
+        ${c.code
+          ? `<img class="flag" src="https://flagcdn.com/w40/${c.code}.png" alt="${c.label}">`
+          : `<span class="flag" style="background:#5f7699;display:inline-block;"></span>`}
+        <span class="cname">${c.label}</span><span class="cval">${c.pct} %</span>
+      </div>
+    `).join('');
+  }
+
+  const STATUS_CLASS = { 'Livré': 'done', 'En cours': 'progress' };
+
+  function renderProjects(projects) {
+    document.getElementById('projectList').innerHTML = projects.map(p => `
+      <div class="project-row">
+        <div class="thumb" style="background:${p.thumbGradient}"></div>
+        <div class="p-info">
+          <div class="p-title">${p.title}</div>
+          <div class="p-date">${new Date(p.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+        </div>
+        <div class="status ${STATUS_CLASS[p.status] || ''}"><span class="sdot"></span>${p.status}</div>
+        <div class="more-dots">⋯</div>
+      </div>
+    `).join('');
+  }
+
+  let visitsChart, donutChart;
+
+  function renderVisits(data) {
+    document.getElementById('visitsCount').innerHTML =
+      `${fmtInt(data.total)} ${upDownSpan(data.deltaPct)}`;
+
+    const ctx = document.getElementById('visitsChart').getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 230);
+    grad.addColorStop(0, 'rgba(56,198,255,0.35)');
+    grad.addColorStop(1, 'rgba(56,198,255,0)');
+
+    const chartData = {
+      labels: data.labels,
+      datasets: [{
+        data: data.values,
+        borderColor: '#38c6ff',
+        borderWidth: 2.5,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: '#38c6ff',
+        pointHoverBorderColor: '#fff',
+        tension: 0.4,
+        fill: true,
+        backgroundColor: grad
+      }]
+    };
+
+    if (visitsChart) { visitsChart.data = chartData; visitsChart.update(); return; }
+
+    visitsChart = new Chart(ctx, {
+      type: 'line',
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0d2144', borderColor: 'rgba(93,164,255,0.3)', borderWidth: 1,
+            titleColor: '#9db2d6', bodyColor: '#fff', padding: 10, displayColors: false,
+            callbacks: { label: (c) => fmtInt(c.parsed.y) + ' visites' }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: '#5f7699', font: { size: 11 }, maxTicksLimit: 8 } },
+          y: { grid: { color: 'rgba(93,164,255,0.08)' }, ticks: { color: '#5f7699', font: { size: 11 } } }
+        }
+      }
+    });
+  }
+
+  function renderDonut(sources) {
+    document.getElementById('donutCenterN').textContent = fmtInt(
+      sources.reduce((a, s) => a + s.pct, 0) === 100 ? window.__lastVisitsTotal || 0 : 0
+    );
+    const dctx = document.getElementById('donutChart').getContext('2d');
+    const chartData = {
+      datasets: [{
+        data: sources.map(s => s.pct),
+        backgroundColor: sources.map(s => s.color),
+        borderColor: '#0b1c3a', borderWidth: 3, hoverOffset: 6
+      }]
+    };
+    if (donutChart) { donutChart.data = chartData; donutChart.update(); return; }
+    donutChart = new Chart(dctx, {
+      type: 'doughnut',
+      data: chartData,
+      options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { display: false } } }
+    });
+  }
+
+  async function loadVisits(range) {
+    const res = await apiFetch(`${API_BASE}/api/visits?range=${range}`);
+    const data = await res.json();
+    window.__lastVisitsTotal = data.total;
+    renderVisits(data);
+    document.getElementById('donutCenterN').textContent = fmtInt(data.total);
+  }
+
+  async function loadDashboard() {
+    const statusEl = document.getElementById('apiStatus');
+    const statusText = document.getElementById('apiStatusText');
+    try {
+      const res = await apiFetch(`${API_BASE}/api/dashboard`);
+      if (!res.ok) throw new Error('API error ' + res.status);
+      const data = await res.json();
+
+      renderStats(data.stats);
+      renderTrafficLegend(data.trafficSources);
+      renderCountries(data.countries);
+      renderProjects(data.projects);
+      window.__lastVisitsTotal = data.visits.total;
+      renderVisits(data.visits);
+      renderDonut(data.trafficSources);
+      document.getElementById('donutCenterN').textContent = fmtInt(data.visits.total);
+
+      statusText.textContent = 'API connectée';
+      statusEl.classList.remove('offline');
+    } catch (err) {
+      if (err.message !== 'unauthorized') {
+        console.error(err);
+        statusText.textContent = 'API hors ligne';
+        statusEl.classList.add('offline');
+      }
+    }
+  }
+
+  document.getElementById('rangeSelect').addEventListener('change', (e) => {
+    loadVisits(e.target.value);
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    clearToken();
+    showLogin();
+  });
+
+  // Point d'entrée : si on a déjà un token, on tente de charger directement ;
+  // sinon on affiche l'écran de connexion.
+  if (getToken()) {
+    hideLogin();
+    loadDashboard();
+  } else {
+    showLogin();
+  }
+</script>
+</body>
+</html>
