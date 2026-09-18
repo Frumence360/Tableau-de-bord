@@ -19,7 +19,11 @@ frumence-dashboard/
 ├── middleware/
 │   └── auth.js             # vérifie le token JWT sur les routes protégées
 ├── routes/
-│   └── auth.js             # POST /api/auth/login, GET /api/auth/me
+│   └── auth.js             # login, me, change-password
+├── scripts/
+│   ├── check-secrets.js      # détecte les secrets dans les fichiers versionnés
+│   ├── pre-commit            # hook git (bloque un commit contenant un secret)
+│   └── setup-hooks.js        # installe le hook (npm run setup-hooks)
 ├── public/index.html       # dashboard (écran de connexion + fetch authentifié)
 └── package.json
 ```
@@ -31,6 +35,7 @@ cd frumence-dashboard
 cp .env.example .env        # DATABASE_URL par défaut correspond au docker-compose
 docker compose up -d        # lance Postgres sur localhost:5432
 npm install
+npm run setup-hooks         # installe le garde-fou anti-secrets (hook pre-commit)
 npm run migrate             # crée les tables
 npm run seed                # crée le compte admin + les données de départ
 npm start
@@ -58,6 +63,23 @@ définis dans `.env`.
   (`tv`) issu de la colonne `users.token_version`. Changer le mot de passe
   incrémente cette version, ce qui **invalide immédiatement tous les tokens
   émis auparavant** — y compris ceux d'autres appareils/navigateurs.
+
+## Garde-fou anti-secrets
+Le projet embarque un contrôle qui empêche de committer par erreur de vraies
+credentials (URL de base hébergée, mots de passe, clés API).
+
+```bash
+npm run setup-hooks   # installe le hook git pre-commit (à faire une fois)
+npm run check-secrets # lance le contrôle manuellement
+```
+
+Une fois le hook installé, un `git commit` est **bloqué** si un fichier versionné
+contient un secret. Règle principale : `.env.example` ne doit contenir que des
+**placeholders** (localhost, `change-moi-...`) — jamais tes vraies valeurs, qui
+vivent uniquement dans `.env` (non versionné).
+
+Pour installer le hook automatiquement à chaque `npm install`, on peut ajouter
+plus tard un script `postinstall`. En attendant : `npm run setup-hooks`.
 
 ## Changer le mot de passe
 **Depuis le dashboard :** clique sur le bloc utilisateur en haut à droite, saisis

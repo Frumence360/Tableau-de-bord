@@ -1,0 +1,32 @@
+#!/bin/sh
+# Hook git pre-commit — installé par `npm run setup-hooks`.
+# Bloque le commit si des secrets (vraie DATABASE_URL, mots de passe, clés API)
+# sont détectés dans les fichiers suivis par git.
+
+# git Bash n'hérite pas toujours du PATH de Windows : on localise node nous-mêmes.
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="node"
+else
+  for candidate in \
+    "/c/Program Files/nodejs/node.exe" \
+    "/c/Program Files (x86)/nodejs/node.exe" \
+    "$LOCALAPPDATA/Programs/nodejs/node.exe"
+  do
+    if [ -x "$candidate" ]; then
+      NODE_BIN="$candidate"
+      break
+    fi
+  done
+fi
+if [ -z "$NODE_BIN" ]; then
+  echo "garde-fou anti-secrets : node introuvable, verification ignoree."
+  exit 0
+fi
+"$NODE_BIN" scripts/check-secrets.js
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "Commit annulé par le garde-fou anti-secrets."
+  echo "Pour forcer (à éviter) : git commit --no-verify"
+  exit 1
+fi

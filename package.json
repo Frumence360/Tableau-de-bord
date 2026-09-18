@@ -7,7 +7,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "migrate": "node db/migrate.js",
-    "seed": "node db/seed.js"
+    "seed": "node db/seed.js",
+    "check-secrets": "node scripts/check-secrets.js",
+    "setup-hooks": "node scripts/setup-hooks.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
