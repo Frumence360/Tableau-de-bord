@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rédacteur — éditeur de texte</title>
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+<div class="chrome">
+  <div class="bar">
+    <span class="logo">Rédacteur</span>
+    <input id="title" value="Document1" aria-label="Nom du document" spellcheck="false">
+    <span class="sp"></span>
+    <button id="new">Nouveau</button>
+    <button id="open">Ouvrir</button>
+    <button class="dl" id="saveHtml">Enregistrer (.html)</button>
+    <button class="dl" id="saveTxt">Texte (.txt)</button>
+    <button class="dl" id="saveDocx">Word (.docx)</button>
+    <button class="dl" id="savePdf">PDF</button>
+    <button id="print">Imprimer</button>
+    <button id="insertEntry" hidden>Insérer dans la fiche</button>
+    <input type="file" id="file" accept=".html,.htm,.txt" hidden>
+  </div>
+  <div class="ribbon" id="ribbon" role="toolbar" aria-label="Mise en forme">
+    <div class="grp">
+      <button data-c="undo" title="Annuler (Ctrl+Z)">↶</button>
+      <button data-c="redo" title="Rétablir (Ctrl+Y)">↷</button>
+    </div>
+    <div class="grp">
+      <select id="style" title="Style de paragraphe"><option value="p">Normal</option><option value="h1">Titre 1</option><option value="h2">Titre 2</option><option value="h3">Titre 3</option><option value="blockquote">Citation</option></select>
+      <select id="font" title="Police"><option>Calibri</option><option>Arial</option><option>Times New Roman</option><option>Georgia</option><option>Verdana</option><option>Trebuchet MS</option><option>Courier New</option></select>
+      <select id="size" title="Taille (pt)"></select>
+    </div>
+    <div class="grp">
+      <button data-c="bold" title="Gras (Ctrl+B)"><b>B</b></button>
+      <button data-c="italic" title="Italique (Ctrl+I)"><i>I</i></button>
+      <button data-c="underline" title="Souligné (Ctrl+U)"><u>U</u></button>
+      <button data-c="strikeThrough" title="Barré"><s>S</s></button>
+      <button data-c="subscript" title="Indice">x<sub>2</sub></button>
+      <button data-c="superscript" title="Exposant">x<sup>2</sup></button>
+      <label class="b" title="Couleur du texte"><span>A</span><i class="sw" id="fcsw" style="background:#c00000"></i><input type="color" id="fc" value="#c00000"></label>
+      <label class="b" title="Surlignage"><span>🖍</span><i class="sw" id="hcsw" style="background:#ffeb3b"></i><input type="color" id="hc" value="#ffeb3b"></label>
+      <button data-c="removeFormat" title="Effacer la mise en forme">⌫</button>
+    </div>
+    <div class="grp" id="aligns"></div>
+    <div class="grp">
+      <button data-c="insertUnorderedList" title="Liste à puces">•≡</button>
+      <button data-c="insertOrderedList" title="Liste numérotée">1.</button>
+      <button data-c="outdent" title="Diminuer le retrait">⇤</button>
+      <button data-c="indent" title="Augmenter le retrait">⇥</button>
+      <select id="lh" title="Interligne"><option value="1">1,0</option><option value="1.15">1,15</option><option value="1.5" selected>1,5</option><option value="2">2,0</option><option value="2.5">2,5</option></select>
+    </div>
+    <div class="grp">
+      <button id="tbl" title="Insérer un tableau 3×3">▦</button>
+      <button id="imgBtn" title="Insérer une image">🖼</button>
+      <button id="lnk" title="Insérer un lien">🔗</button>
+      <button data-c="insertHorizontalRule" title="Ligne horizontale">―</button>
+      <button id="fbtn" title="Rechercher / remplacer (Ctrl+F)">🔍</button>
+    </div>
+    <input type="file" id="img" accept="image/*" hidden>
+  </div>
+  <div id="linkbar"><input id="url" placeholder="https://exemple.com" aria-label="Adresse du lien"><button id="okLink">Insérer le lien</button><button id="noLink">Annuler</button></div>
+  <div id="findbar"><input id="fq" placeholder="Rechercher" aria-label="Rechercher"><input id="fr" placeholder="Remplacer par" aria-label="Remplacer par"><button id="fn">Suivant</button><button id="frp">Remplacer</button><button id="fa">Tout remplacer</button><span id="fcount"></span><button id="fx">Fermer</button></div>
+</div>
+
+<div class="desk"><div class="sheet" id="sheet">
+  <div id="page" contenteditable="true" spellcheck="true" aria-label="Page du document"><h1>Titre du document</h1><p>Commencez à écrire ici. Sélectionnez du texte pour le mettre en forme avec le ruban au-dessus.</p></div>
+</div></div>
+
+<div class="status">
+  <span id="pgs">1 page</span><span id="words">0 mot</span><span id="chars">0 caractère</span><span id="saved"></span><span class="sp"></span>
+  <span>Zoom</span><input type="range" id="zoom" min="50" max="150" value="100" step="10" aria-label="Zoom"><span id="zv">100 %</span>
+</div>
+
+<script src="editor.js"></script>
+</body>
+</html>

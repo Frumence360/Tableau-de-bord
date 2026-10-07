@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const requireAuth = require('../middleware/auth');
+const queries = require('../db/queries');
 
 const router = express.Router();
 
@@ -16,16 +17,7 @@ const loginLimiter = rateLimit({
   message: { error: 'Trop de tentatives, réessaie dans quelques minutes.' }
 });
 
-// Limite les tentatives de changement de mot de passe (mêmes raisons)
-const changePasswordLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Trop de tentatives, réessaie dans quelques minutes.' }
-});
-
-const MIN_PASSWORD_LENGTH = 8;
+// ─── POST /api/auth/login ─────────────────────────────────────────────────────
 
 router.post('/login', loginLimiter, async (req, res, next) => {
   try {
@@ -35,61 +27,96 @@ router.post('/login', loginLimiter, async (req, res, next) => {
       return res.status(400).json({ error: "Nom d'utilisateur et mot de passe requis" });
     }
 
-    const { rows } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    const { rows } = await pool.query(
+      `SELECT u.*, COALESCE(ur.role, 'capturer') AS role
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       WHERE u.username = $1`,
+      [username]
+    );
     const user = rows[0];
 
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    if (!user || !user.is_active || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Identifiants invalides' });
     }
 
     const token = jwt.sign(
-      { sub: user.id, username: user.username, tv: user.token_version },
+      { sub: user.id, username: user.username, tv: user.token_version, role: user.role || 'capturer' },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
 
-    res.json({ token, username: user.username, expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
+    res.json({
+      token,
+      username: user.username,
+      role: user.role || 'capturer',
+      permissions: queries.getRolePermissions(user.role || 'capturer'),
+      expiresIn: process.env.JWT_EXPIRES_IN || '8h'
+    });
   } catch (err) {
     next(err);
   }
 });
 
+// ─── GET /api/auth/me ─────────────────────────────────────────────────────────
 // Permet au frontend de vérifier si le token en mémoire est toujours valide
+
 router.get('/me', requireAuth, (req, res) => {
-  res.json({ username: req.user.username });
+  res.json({
+    username: req.user.username,
+    role: req.user.role,
+    permissions: queries.getRolePermissions(req.user.role)
+  });
 });
 
-// Changement de mot de passe : exige le token + l'ancien mot de passe
-router.post('/change-password', requireAuth, changePasswordLimiter, async (req, res, next) => {
+// ─── POST /api/auth/change-password ───────────────────────────────────────────
+// Permet à l'utilisateur connecté de changer son mot de passe
+
+router.post('/change-password', requireAuth, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body || {};
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Mot de passe actuel et nouveau mot de passe requis' });
+      return res.status(400).json({ error: 'Mot de passe actuel et nouveau requis' });
     }
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      return res.status(400).json({ error: `Le nouveau mot de passe doit faire au moins ${MIN_PASSWORD_LENGTH} caractères` });
-    }
-    if (newPassword === currentPassword) {
-      return res.status(400).json({ error: "Le nouveau mot de passe doit être différent de l'actuel" });
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Le nouveau mot de passe doit faire au moins 8 caractères' });
     }
 
+    // Vérifier le mot de passe actuel
     const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
     const user = rows[0];
-
     if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
       return res.status(401).json({ error: 'Mot de passe actuel incorrect' });
     }
 
-    // On incrémente token_version dans le même UPDATE : tous les tokens émis
-    // avant ce changement deviennent invalides (y compris celui utilisé ici).
+    // Hasher et mettre à jour
     const hash = bcrypt.hashSync(newPassword, 10);
-    await pool.query(
-      'UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2',
+    const { rows: updated } = await pool.query(
+      `UPDATE users
+       SET password_hash = $1, token_version = token_version + 1
+       WHERE id = $2
+       RETURNING id, username, token_version`,
       [hash, user.id]
     );
+    const u = updated[0];
+    const finalRole = await pool.query('SELECT role FROM user_roles WHERE user_id = $1', [u.id]);
+    const role = finalRole.rows[0] ? finalRole.rows[0].role : 'capturer';
+    const token = jwt.sign(
+      { sub: u.id, username: u.username, tv: u.token_version, role },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+    );
 
-    res.json({ ok: true });
+    res.json({
+      success: true,
+      message: 'Mot de passe modifié avec succès',
+      token,
+      username: u.username,
+      role,
+      permissions: queries.getRolePermissions(role),
+      expiresIn: process.env.JWT_EXPIRES_IN || '8h'
+    });
   } catch (err) {
     next(err);
   }

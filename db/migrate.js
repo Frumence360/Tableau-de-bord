@@ -1,5 +1,5 @@
 /**
- * Applique db/schema.sql sur la base pointée par DATABASE_URL.
+ * Applique db/schema.sql sur la base PostgreSQL pointée par DATABASE_URL.
  * Lance-le avec : npm run migrate
  */
 
@@ -9,9 +9,29 @@ const path = require('path');
 const pool = require('./index');
 
 async function migrate() {
+  // pg n'accepte pas plusieurs instructions en un seul appel — on découpe
+  // le schéma sur les ";" de fin de statement.
   const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-  await pool.query(sql);
-  console.log('✔ Schéma appliqué avec succès.');
+  const statements = sql
+    .split(/;[ \t]*(?:\r?\n|$)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const stmt of statements) {
+    await pool.query(stmt);
+  }
+
+  // Bases déjà créées : CREATE TABLE IF NOT EXISTS n'ajoute pas les nouvelles colonnes.
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1
+  `);
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true
+  `);
+
+  console.log(`✔ Schéma appliqué avec succès (${statements.length} instructions).`);
   await pool.end();
 }
 
