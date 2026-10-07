@@ -71,6 +71,9 @@ if (!process.env.JWT_SECRET) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MAX_IMPORT_FILE_BYTES = imports.MAX_IMPORT_FILE_BYTES;
+const MAX_RECORD_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const MAX_IMPORT_REQUEST_BYTES = Math.ceil(MAX_IMPORT_FILE_BYTES / 3) * 4 + 16 * 1024;
 
 // Petit wrapper pour ne pas répéter try/catch sur chaque route async
 const asyncRoute = (fn) => (req, res, next) => fn(req, res, next).catch(next);
@@ -126,7 +129,7 @@ app.use(cors({
   },
   credentials: false
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: MAX_IMPORT_REQUEST_BYTES }));
 
 // ─── Rate limiters ────────────────────────────────────────────────────────────
 // Limite générale contre les abus sur l'API
@@ -317,8 +320,6 @@ app.post('/api/records', writeLimiter, requirePermission('write'), asyncRoute(as
   }
   res.status(201).json(await queries.addRecord({ source, reference, title, category, status, quantity, value, notes }));
 }));
-
-const MAX_RECORD_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 app.get('/api/records/:id/attachments', requirePermission('read'), asyncRoute(async (req, res) => {
   const recordId = Number(req.params.id);
@@ -738,8 +739,6 @@ app.put('/api/users/:id/role', adminLimiter, requireRole(['admin']), asyncRoute(
 // conservé brièvement en base pour fonctionner sur les instances serverless.
 
 const IMPORT_SESSION_TTL = 30 * 60 * 1000; // 30 minutes
-const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
-
 async function cleanupImportSessions() {
   await db.query(
     `DELETE FROM import_sessions
@@ -808,7 +807,7 @@ app.post('/api/imports/preview', importLimiter, requirePermission('write'), asyn
 
   const buffer = Buffer.from(content, 'base64');
   if (buffer.length > MAX_IMPORT_FILE_BYTES) {
-    return res.status(413).json({ error: 'Fichier trop volumineux (10 Mo maximum).' });
+    return res.status(413).json({ error: 'Fichier trop volumineux (3 Mo maximum).' });
   }
 
   let parsed;
@@ -956,7 +955,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use((err, req, res, next) => {
   console.error(err);
   if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Le fichier dépasse la limite de 10 Mo.' });
+    const limitMessage = req.path.includes('/attachments')
+      ? 'La pièce jointe dépasse la limite de 4 Mo.'
+      : req.path === '/api/imports/preview'
+        ? 'Le fichier d’import dépasse la limite de 3 Mo.'
+        : 'Le corps de la requête dépasse la limite autorisée.';
+    return res.status(413).json({ error: limitMessage });
   }
   res.status(500).json({ error: 'Erreur serveur' });
 });

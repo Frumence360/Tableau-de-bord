@@ -49,7 +49,9 @@ test('le limiteur d\'écriture référencé par les routes est bien défini', ()
 
 test('les routes des pièces jointes et leur limite de taille sont configurées', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../server.js'), 'utf8');
-  assert.match(source, /const MAX_RECORD_ATTACHMENT_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(source, /const MAX_RECORD_ATTACHMENT_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(source, /const MAX_IMPORT_FILE_BYTES = imports\.MAX_IMPORT_FILE_BYTES/);
+  assert.match(source, /express\.json\(\{ limit: MAX_IMPORT_REQUEST_BYTES \}\)/);
   assert.match(source, /\/api\/records\/:id\/attachments\/:attachmentId\/download/);
   assert.match(source, /express\.raw\(\{ type: 'application\/octet-stream', limit: MAX_RECORD_ATTACHMENT_BYTES \}\)/);
 });

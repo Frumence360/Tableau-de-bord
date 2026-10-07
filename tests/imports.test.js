@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  parseImportFile, suggestMapping, parseNumber, normalizeStatus,
+  MAX_IMPORT_FILE_BYTES, parseImportFile, suggestMapping, parseNumber, normalizeStatus,
   validateMapping, buildImportPlan
 } = require('../db/imports');
 const XLSX = require('xlsx');
@@ -47,6 +47,14 @@ test('parseImportFile refuse un fichier vide ou sans ligne de données', () => {
     assert.ok([400, 413].includes(err.status));
     return true;
   });
+});
+
+test('parseImportFile refuse les fichiers supérieurs à 3 Mo', () => {
+  assert.equal(MAX_IMPORT_FILE_BYTES, 3 * 1024 * 1024);
+  assert.throws(
+    () => parseImportFile(Buffer.alloc(MAX_IMPORT_FILE_BYTES + 1), 'lot.csv'),
+    (err) => err.status === 413 && /3 Mo maximum/.test(err.message)
+  );
 });
 
 test('parseNumber tolère les formats français et anglais', () => {

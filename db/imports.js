@@ -19,6 +19,7 @@ const XLSX = require('xlsx');
 const IMPORT_FIELDS = ['source', 'reference', 'title', 'category', 'status', 'quantity', 'value', 'notes'];
 const IMPORT_STATUSES = ['en_attente', 'valide', 'incomplet', 'rejete'];
 
+const MAX_IMPORT_FILE_BYTES = 3 * 1024 * 1024;
 const MAX_ROWS = 5000;
 const PREVIEW_ROWS = 50;
 
@@ -104,8 +105,8 @@ function parseImportFile(buffer, filename = '') {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw Object.assign(new Error('Fichier vide.'), { status: 400 });
   }
-  if (buffer.length > 10 * 1024 * 1024) {
-    throw Object.assign(new Error('Fichier trop volumineux (10 Mo maximum).'), { status: 413 });
+  if (buffer.length > MAX_IMPORT_FILE_BYTES) {
+    throw Object.assign(new Error('Fichier trop volumineux (3 Mo maximum).'), { status: 413 });
   }
 
   const isExcel = /\.(xlsx|xls|xlsm|ods)$/i.test(filename);
@@ -423,6 +424,7 @@ async function insertImportPlan(client, plan, { evaluateRecordValidation, DEFAUL
 module.exports = {
   IMPORT_FIELDS,
   IMPORT_STATUSES,
+  MAX_IMPORT_FILE_BYTES,
   MAX_ROWS,
   PREVIEW_ROWS,
   normalizeHeader,

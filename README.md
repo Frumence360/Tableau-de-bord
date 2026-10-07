@@ -87,7 +87,9 @@ automatiquement les origines de déploiement courante et production à la liste
 CORS; garde `ALLOWED_ORIGINS` pour les origines locales ou externes explicites.
 Les fonctions Vercel imposent une limite de taille aux corps HTTP : teste les
 imports et pièces jointes volumineux sur un Preview avant de retenir Vercel pour
-ce flux.
+ce flux. Pour rester sous cette limite, l’application accepte les imports CSV /
+Excel jusqu’à **3 Mo** et les pièces jointes jusqu’à **4 Mo**. Le contenu Base64
+d’un import est pris en compte dans la limite JSON de la requête.
 
 ## Éditeur de documents
 
@@ -201,7 +203,7 @@ statut `rejete` afin de préserver sa traçabilité.
 | POST    | `/api/messages/read-all`       | Saisie | Marquer tous les messages comme lus |
 | GET     | `/api/records`                 | Oui  | Fiches capturées avec pagination et filtres |
 | POST    | `/api/records`                 | Saisie | Créer une fiche et appliquer les règles qualité |
-| POST    | `/api/records/:id/attachments` | Saisie | Joindre un fichier original à une fiche (maximum 10 Mo) |
+| POST    | `/api/records/:id/attachments` | Saisie | Joindre un fichier original à une fiche (maximum 4 Mo) |
 | GET     | `/api/records/:id/attachments` | Oui  | Lister les pièces jointes d'une fiche |
 | GET     | `/api/records/:id/attachments/:attachmentId/download` | Oui | Télécharger une pièce jointe |
 | PUT     | `/api/records/:id`             | Saisie | Corriger une fiche et journaliser les changements |

@@ -1442,8 +1442,10 @@
 
   const importFileInput = document.getElementById('importFile');
   importFileInput.addEventListener('change', () => {
-    document.getElementById('importPreviewBtn').disabled = !importFileInput.files.length;
-    setImportMsg('importMsg', '');
+    const file = importFileInput.files[0];
+    const tooLarge = file && file.size > 3 * 1024 * 1024;
+    document.getElementById('importPreviewBtn').disabled = !file || tooLarge;
+    setImportMsg('importMsg', tooLarge ? 'Le fichier dépasse la limite de 3 Mo.' : '');
   });
 
   function readFileAsBase64(file) {
@@ -2275,6 +2277,11 @@
   });
   entryAttachmentInput.addEventListener('change', () => {
     const file = entryAttachmentInput.files[0];
+    if (file && file.size > 4 * 1024 * 1024) {
+      entryAttachmentName.textContent = 'Le fichier sélectionné dépasse la limite de 4 Mo.';
+      entryAttachmentInput.value = '';
+      return;
+    }
     entryAttachmentName.textContent = file ? `Fichier à joindre : ${file.name}` : '';
   });
 
@@ -2301,8 +2308,8 @@
   document.getElementById('submitEntryBtn').addEventListener('click', async (event) => {
     const payload = readEntryPayload();
     const attachment = entryAttachmentInput.files[0] || null;
-    if (attachment && attachment.size > 10 * 1024 * 1024) {
-      setEntryMessage('Le fichier sélectionné dépasse la limite de 10 Mo.', 'err');
+    if (attachment && attachment.size > 4 * 1024 * 1024) {
+      setEntryMessage('Le fichier sélectionné dépasse la limite de 4 Mo.', 'err');
       return;
     }
     if (!payload.source || !payload.title || !payload.category) {
