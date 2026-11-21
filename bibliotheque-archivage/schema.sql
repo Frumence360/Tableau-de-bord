@@ -1,0 +1,2 @@
+-- Schema historique Supabase, volontairement desactive.
+-- Le modele actif est defini dans ../../db/schema.sql et applique avec npm run migrate.

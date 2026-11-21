@@ -55,3 +55,24 @@ test('les routes des pièces jointes et leur limite de taille sont configurées'
   assert.match(source, /\/api\/records\/:id\/attachments\/:attachmentId\/download/);
   assert.match(source, /express\.raw\(\{ type: 'application\/octet-stream', limit: MAX_RECORD_ATTACHMENT_BYTES \}\)/);
 });
+
+test('les routes de la bibliothèque appliquent les permissions par opération', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../server.js'), 'utf8');
+  assert.match(source, /app\.get\('\/api\/library\/export\.json', requirePermission\('export'\)/);
+  assert.match(source, /app\.get\('\/api\/library', requirePermission\('read'\)/);
+  assert.match(source, /app\.get\('\/api\/library\/facets', requirePermission\('read'\)/);
+  assert.match(source, /app\.get\('\/api\/library\/:id\/files', requirePermission\('read'\)/);
+  assert.match(source, /app\.post\([\s\S]*?'\/api\/library\/:id\/files\/:kind'[\s\S]*?requirePermission\('write'\)/);
+  assert.match(source, /app\.get\('\/api\/library\/:id\/files\/:kind\/download', requirePermission\('read'\)/);
+  assert.match(source, /app\.delete\('\/api\/library\/:id\/files\/:kind', writeLimiter, requirePermission\('archive'\)/);
+  assert.match(source, /const MAX_LIBRARY_ITEM_FILE_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(source, /app\.post\('\/api\/library', writeLimiter, requirePermission\('write'\)/);
+  assert.match(source, /app\.put\('\/api\/library\/:id', writeLimiter, requirePermission\('write'\)/);
+  assert.match(source, /app\.delete\('\/api\/library\/:id', writeLimiter, requirePermission\('archive'\)/);
+});
+
+test('la CSP autorise les aperçus Blob du lecteur de bibliothèque', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../server.js'), 'utf8');
+  assert.match(source, /"img-src 'self' data: blob: https:\/\/flagcdn\.com"/);
+  assert.match(source, /"frame-src 'self' blob:"/);
+});

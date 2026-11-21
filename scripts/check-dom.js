@@ -11,7 +11,15 @@ const ids = [
   'anomalySearch', 'filterAnomalyType', 'filterAnomalySeverity', 'filterAnomalyStatus',
   'filterAnomalyRecordStatus', 'anomalyPageSize', 'anomalyPager', 'anomalyReset',
   'correctionSearch', 'correctionPageSize', 'correctionPager',
-  'recordRows', 'validationRows', 'correctionRows'
+  'recordRows', 'validationRows', 'correctionRows',
+  'librarySearch', 'libraryShelfFilter', 'libraryTypeFilter',
+  'libraryContent', 'libraryTagCloud', 'libraryPager', 'libraryAddBtn',
+  'libraryItemForm', 'libraryItemTitle', 'libraryItemTags', 'libraryItemNotes',
+  'libraryFileFields', 'libraryCoverInput', 'libraryAttachmentInput',
+  'libraryChooseCover', 'libraryChooseAttachment', 'libraryCoverInfo', 'libraryAttachmentInfo',
+  'libraryReaderOverlay', 'libraryReaderTitle', 'libraryReaderClose', 'libraryReaderDetails',
+  'libraryReaderMessage', 'libraryReaderContent', 'libraryReaderFrame', 'libraryReaderImage',
+  'libraryReaderText', 'libraryReaderDownload'
 ];
 
 let problems = 0;

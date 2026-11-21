@@ -73,6 +73,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MAX_IMPORT_FILE_BYTES = imports.MAX_IMPORT_FILE_BYTES;
 const MAX_RECORD_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const MAX_LIBRARY_ITEM_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_REQUEST_BYTES = Math.ceil(MAX_IMPORT_FILE_BYTES / 3) * 4 + 16 * 1024;
 
 // Petit wrapper pour ne pas répéter try/catch sur chaque route async
@@ -99,9 +100,10 @@ app.use((req, res, next) => {
       // Les styles inline (style="…") et les variables CSS sont nécessaires
       "style-src 'self' 'unsafe-inline'",
       // Drapeaux nationaux via flagcdn.com
-      "img-src 'self' data: https://flagcdn.com",
+      "img-src 'self' data: blob: https://flagcdn.com",
       "connect-src 'self'",
       "font-src 'self'",
+      "frame-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
       "frame-ancestors 'none'"
@@ -242,6 +244,209 @@ app.delete('/api/projects/:id', writeLimiter, requirePermission('write'), asyncR
   if (!id) return res.status(400).json({ error: 'ID invalide' });
   const deleted = await queries.deleteProject(id);
   if (!deleted) return res.status(404).json({ error: 'Projet introuvable' });
+  res.json({ success: true });
+}));
+
+// ─── Bibliothèque ────────────────────────────────────────────────────────────
+
+app.get('/api/library/export.json', requirePermission('export'), asyncRoute(async (req, res) => {
+  const items = await queries.getLibraryItems();
+  await queries.addAuditLog({
+    userId: req.user.id,
+    username: req.user.username,
+    action: 'library_export',
+    entity: 'library_items',
+    details: { count: items.length }
+  });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="bibliotheque.json"');
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(items);
+}));
+
+app.get('/api/library', requirePermission('read'), asyncRoute(async (req, res) => {
+  res.json(await queries.getLibraryItemsPage(req.query));
+}));
+
+app.get('/api/library/facets', requirePermission('read'), asyncRoute(async (req, res) => {
+  res.json(await queries.getLibraryFacets());
+}));
+
+app.get('/api/library/:id', requirePermission('read'), asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ error: 'ID de document invalide.' });
+  }
+  const item = await queries.getLibraryItem(id);
+  if (!item) return res.status(404).json({ error: 'Document introuvable.' });
+  res.json(item);
+}));
+
+app.get('/api/library/:id/files', requirePermission('read'), asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ error: 'ID de document invalide.' });
+  }
+  if (!await queries.getLibraryItem(id)) return res.status(404).json({ error: 'Document introuvable.' });
+  res.json(await queries.getLibraryItemFiles(id));
+}));
+
+app.post(
+  '/api/library/:id/files/:kind',
+  writeLimiter,
+  requirePermission('write'),
+  express.raw({ type: 'application/octet-stream', limit: MAX_LIBRARY_ITEM_FILE_BYTES }),
+  asyncRoute(async (req, res) => {
+    const itemId = Number(req.params.id);
+    const { kind } = req.params;
+    if (!Number.isInteger(itemId) || itemId < 1) {
+      return res.status(400).json({ error: 'ID de document invalide.' });
+    }
+    if (!['cover', 'attachment'].includes(kind)) {
+      return res.status(400).json({ error: 'Type de fichier invalide.' });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'Le fichier est vide ou absent.' });
+    }
+
+    let fileName;
+    try {
+      fileName = decodeURIComponent(req.get('X-File-Name') || '');
+    } catch {
+      return res.status(400).json({ error: 'Nom de fichier invalide.' });
+    }
+    fileName = path.basename(fileName.replace(/[\\/]/g, path.sep))
+      .replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    if (!fileName || Buffer.byteLength(fileName, 'utf8') > 255) {
+      return res.status(400).json({ error: 'Le nom du fichier est requis et limité à 255 octets.' });
+    }
+
+    let contentType = 'application/octet-stream';
+    try {
+      const requestedType = decodeURIComponent(req.get('X-File-Type') || '');
+      if (/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(requestedType)) {
+        contentType = requestedType.toLowerCase();
+      }
+    } catch {
+      return res.status(400).json({ error: 'Type de fichier invalide.' });
+    }
+    if (kind === 'cover' && !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(contentType)) {
+      return res.status(400).json({ error: 'La couverture doit être une image JPEG, PNG, GIF ou WebP.' });
+    }
+
+    if (!await queries.getLibraryItem(itemId)) {
+      return res.status(404).json({ error: 'Document introuvable.' });
+    }
+    const file = await queries.saveLibraryItemFile({
+      itemId,
+      kind,
+      storageKey: crypto.randomBytes(16).toString('hex'),
+      fileName,
+      contentType,
+      content: req.body,
+      uploadedBy: req.user.id
+    });
+    await queries.addAuditLog({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'library_file_upload',
+      entity: 'library_item_file',
+      details: { itemId, kind, fileName, fileSize: file.fileSize }
+    });
+    res.status(201).json(file);
+  })
+);
+
+app.get('/api/library/:id/files/:kind/download', requirePermission('read'), asyncRoute(async (req, res) => {
+  const itemId = Number(req.params.id);
+  const { kind } = req.params;
+  if (!Number.isInteger(itemId) || itemId < 1) {
+    return res.status(400).json({ error: 'ID de document invalide.' });
+  }
+  if (!['cover', 'attachment'].includes(kind)) {
+    return res.status(400).json({ error: 'Type de fichier invalide.' });
+  }
+
+  const file = await queries.getLibraryItemFile(itemId, kind);
+  if (!file) return res.status(404).json({ error: 'Fichier introuvable ou contenu indisponible.' });
+  res.setHeader('Content-Type', file.contentType || 'application/octet-stream');
+  res.setHeader('Content-Length', file.fileSize);
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(file.content);
+}));
+
+app.delete('/api/library/:id/files/:kind', writeLimiter, requirePermission('archive'), asyncRoute(async (req, res) => {
+  const itemId = Number(req.params.id);
+  const { kind } = req.params;
+  if (!Number.isInteger(itemId) || itemId < 1) {
+    return res.status(400).json({ error: 'ID de document invalide.' });
+  }
+  if (!['cover', 'attachment'].includes(kind)) {
+    return res.status(400).json({ error: 'Type de fichier invalide.' });
+  }
+
+  const file = await queries.deleteLibraryItemFile(itemId, kind);
+  if (!file) return res.status(404).json({ error: 'Fichier introuvable.' });
+  await queries.addAuditLog({
+    userId: req.user.id,
+    username: req.user.username,
+    action: 'library_file_delete',
+    entity: 'library_item_file',
+    details: { itemId, kind, fileName: file.fileName }
+  });
+  res.json({ success: true });
+}));
+
+app.post('/api/library', writeLimiter, requirePermission('write'), asyncRoute(async (req, res) => {
+  const validation = queries.validateLibraryItemPayload(req.body);
+  if (!validation.valid) return res.status(400).json({ error: validation.error });
+
+  const item = await queries.addLibraryItem(validation.value, req.user.id);
+  await queries.addAuditLog({
+    userId: req.user.id,
+    username: req.user.username,
+    action: 'library_item_create',
+    entity: 'library_item',
+    details: { itemId: item.id, title: item.title }
+  });
+  res.status(201).json(item);
+}));
+
+app.put('/api/library/:id', writeLimiter, requirePermission('write'), asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ error: 'ID de document invalide.' });
+  }
+  const validation = queries.validateLibraryItemPayload(req.body);
+  if (!validation.valid) return res.status(400).json({ error: validation.error });
+
+  const item = await queries.updateLibraryItem(id, validation.value, req.user.id);
+  if (!item) return res.status(404).json({ error: 'Document introuvable.' });
+  await queries.addAuditLog({
+    userId: req.user.id,
+    username: req.user.username,
+    action: 'library_item_update',
+    entity: 'library_item',
+    details: { itemId: item.id, title: item.title }
+  });
+  res.json(item);
+}));
+
+app.delete('/api/library/:id', writeLimiter, requirePermission('archive'), asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ error: 'ID de document invalide.' });
+  }
+  const item = await queries.deleteLibraryItem(id);
+  if (!item) return res.status(404).json({ error: 'Document introuvable.' });
+  await queries.addAuditLog({
+    userId: req.user.id,
+    username: req.user.username,
+    action: 'library_item_delete',
+    entity: 'library_item',
+    details: { itemId: item.id, title: item.title }
+  });
   res.json({ success: true });
 }));
 
@@ -955,7 +1160,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use((err, req, res, next) => {
   console.error(err);
   if (err.type === 'entity.too.large') {
-    const limitMessage = req.path.includes('/attachments')
+    const limitMessage = req.path.includes('/attachments') || req.path.includes('/files/')
       ? 'La pièce jointe dépasse la limite de 4 Mo.'
       : req.path === '/api/imports/preview'
         ? 'Le fichier d’import dépasse la limite de 3 Mo.'

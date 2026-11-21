@@ -11,6 +11,7 @@
     document.body.classList.toggle('role-no-write', !currentPermissions.has('write'));
     document.body.classList.toggle('role-no-archive', !currentPermissions.has('archive'));
     document.body.classList.toggle('role-no-export', !currentPermissions.has('export'));
+    document.getElementById('libraryAddBtn').hidden = !currentPermissions.has('write');
     document.querySelector('[data-view="supervision"]').hidden = !['admin', 'manager'].includes(role);
     document.querySelector('[data-view="users"]').hidden = !['admin', 'manager'].includes(role);
     document.querySelector('[data-view="security"]').hidden = !['admin', 'manager'].includes(role);
@@ -1888,6 +1889,612 @@
   document.getElementById('documentSearch').addEventListener('input', applyDocumentFilters);
   document.getElementById('documentConfidentialityFilter').addEventListener('change', applyDocumentFilters);
 
+  const LIBRARY_PAGE_SIZE = 50;
+  let libraryPage = 1;
+  let libraryTotalPages = 1;
+  let libraryLoadSequence = 0;
+  let libraryItems = [];
+  let libraryEditingId = null;
+  let libraryView = 'shelves';
+  let librarySelectedTag = '';
+  let libraryFacets = { shelves: [], tags: [] };
+  let libraryCoverUrls = [];
+  let libraryReaderObjectUrl = null;
+  let libraryReaderFile = null;
+  let libraryReaderSequence = 0;
+  let libraryReaderTrigger = null;
+  const LIBRARY_FILE_MAX_BYTES = 4 * 1024 * 1024;
+  const libraryFileKinds = ['cover', 'attachment'];
+
+  function setLibraryMessage(message, kind = '') {
+    const element = document.getElementById('libraryMessage');
+    element.textContent = message;
+    element.className = `modal-msg${kind ? ` ${kind}` : ''}`;
+  }
+
+  function setLibraryItemMessage(message, kind = '') {
+    const element = document.getElementById('libraryItemMessage');
+    element.textContent = message;
+    element.className = `modal-msg${kind ? ` ${kind}` : ''}`;
+  }
+
+  function libraryItemActions(item) {
+    return `<div class="library-item-actions">
+      <button type="button" class="btn-action" data-library-action="read" data-id="${item.id}">Lire</button>
+      ${currentPermissions.has('write')
+        ? `<button type="button" class="btn-action library-edit-btn" data-library-action="edit" data-id="${item.id}">Modifier</button>`
+        : ''}
+      ${currentPermissions.has('archive')
+        ? `<button type="button" class="btn-action danger library-delete-btn" data-library-action="delete" data-id="${item.id}">Supprimer</button>`
+        : ''}
+    </div>`;
+  }
+
+  function libraryCoverMarkup(item, compact = false) {
+    const coverClass = compact ? 'library-cover library-cover-small' : 'library-cover';
+    const label = escapeHTML(item.title || 'Couverture');
+    return `<button type="button" class="${coverClass}" data-library-action="read" data-cover-item="${item.id}" data-id="${item.id}" aria-label="Lire ${label}">
+      <span class="library-cover-fallback">${item.hasCover ? 'Chargement…' : label}</span>
+    </button>`;
+  }
+
+  function libraryCardMarkup(item) {
+    const tags = Array.isArray(item.tags) && item.tags.length
+      ? `<div class="library-card-tags">${item.tags.map((tag) => `<span>#${escapeHTML(tag)}</span>`).join('')}</div>`
+      : '';
+    return `<article class="library-card" data-library-item="${item.id}">
+      ${libraryCoverMarkup(item)}
+      <button type="button" class="library-open-title" data-library-action="read" data-id="${item.id}">${escapeHTML(item.title)}</button>
+      <div class="library-card-meta">${escapeHTML(item.type || 'Livre')}${item.authorReference ? ` · ${escapeHTML(item.authorReference)}` : ''}</div>
+      ${item.hasAttachment ? '<div class="library-card-meta">📎 Fichier joint</div>' : ''}
+      ${tags}
+      ${libraryItemActions(item)}
+    </article>`;
+  }
+
+  function renderLibraryCovers(items, sequence) {
+    libraryCoverUrls.forEach((url) => URL.revokeObjectURL(url));
+    libraryCoverUrls = [];
+    const withCovers = items.filter((item) => item.hasCover);
+    let next = 0;
+    const loadNext = async () => {
+      const item = withCovers[next++];
+      if (!item) return;
+      try {
+        const response = await apiFetch(`${API_BASE}/api/library/${item.id}/files/cover/download`);
+        if (!response.ok) throw new Error('Couverture indisponible.');
+        const url = URL.createObjectURL(await response.blob());
+        if (sequence !== libraryLoadSequence) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        libraryCoverUrls.push(url);
+        document.querySelectorAll(`[data-cover-item="${item.id}"]`).forEach((cover) => {
+          const image = document.createElement('img');
+          image.src = url;
+          image.alt = `Couverture : ${item.title}`;
+          cover.replaceChildren(image);
+        });
+      } catch (err) {
+        if (err.message !== 'unauthorized') {
+          document.querySelectorAll(`[data-cover-item="${item.id}"] .library-cover-fallback`)
+            .forEach((fallback) => { fallback.textContent = item.title; });
+        }
+      }
+      return loadNext();
+    };
+    return Promise.all(Array.from({ length: Math.min(4, withCovers.length) }, loadNext));
+  }
+
+  function renderLibraryItems(payload, sequence) {
+    libraryItems = payload.items || [];
+    libraryPage = payload.page || 1;
+    libraryTotalPages = payload.totalPages || 1;
+    const content = document.getElementById('libraryContent');
+    const tagCloud = document.getElementById('libraryTagCloud');
+    tagCloud.hidden = libraryView !== 'tags';
+    tagCloud.innerHTML = libraryFacets.tags.length
+      ? libraryFacets.tags.map((tag) => `<button type="button" class="library-tag${librarySelectedTag === tag.label ? ' active' : ''}" data-library-tag="${escapeHTML(tag.label)}">#${escapeHTML(tag.label)} <span>${tag.count}</span></button>`).join('')
+      : '<div class="empty-state">Aucun tag dans la bibliothèque.</div>';
+
+    if (!libraryItems.length) {
+      content.innerHTML = '<div class="empty-state">Aucun document ne correspond à ces critères.</div>';
+    } else if (libraryView === 'list') {
+      content.innerHTML = `<div class="library-list">${libraryItems.map((item) => `
+        <article class="library-list-row" data-library-item="${item.id}">
+          ${libraryCoverMarkup(item, true)}
+          <div class="library-list-info">
+            <button type="button" class="library-open-title" data-library-action="read" data-id="${item.id}">${escapeHTML(item.title)}</button>
+            <div class="library-card-meta">${escapeHTML(item.type || 'Livre')}${item.authorReference ? ` · ${escapeHTML(item.authorReference)}` : ''}${item.shelf ? ` · ${escapeHTML(item.shelf)}` : ''}</div>
+            <div class="library-card-meta">${Array.isArray(item.tags) ? item.tags.map((tag) => `#${escapeHTML(tag)}`).join(' ') : ''}</div>
+          </div>
+          ${libraryItemActions(item)}
+        </article>`).join('')}</div>`;
+    } else if (libraryView === 'tags' && !librarySelectedTag) {
+      content.innerHTML = '<div class="empty-state">Choisis un tag pour afficher les documents associés.</div>';
+    } else if (libraryView === 'shelves') {
+      const groups = new Map();
+      libraryItems.forEach((item) => {
+        const shelf = item.shelf && item.shelf.trim() ? item.shelf.trim() : 'Sans étagère';
+        if (!groups.has(shelf)) groups.set(shelf, []);
+        groups.get(shelf).push(item);
+      });
+      content.innerHTML = Array.from(groups.entries()).map(([shelf, items]) => {
+        const facet = libraryFacets.shelves.find((entry) => entry.label === shelf);
+        return `<section class="library-shelf">
+          <div class="library-shelf-head"><h2>${escapeHTML(shelf)}</h2><span>${facet ? facet.count : items.length} document(s)</span></div>
+          <div class="library-grid">${items.map(libraryCardMarkup).join('')}</div>
+        </section>`;
+      }).join('');
+    } else {
+      content.innerHTML = `<div class="library-grid">${libraryItems.map(libraryCardMarkup).join('')}</div>`;
+    }
+
+    renderLibraryCovers(libraryItems, sequence);
+    const pager = document.getElementById('libraryPager');
+    pager.innerHTML = payload.total
+      ? `<span class="pager-info">${payload.total} archive(s)</span>
+         <div class="library-pager-controls">
+           <button type="button" class="btn-action" data-library-page="${libraryPage - 1}" ${libraryPage <= 1 ? 'disabled' : ''}>Précédent</button>
+           <span class="pager-page">Page ${libraryPage} / ${libraryTotalPages}</span>
+           <button type="button" class="btn-action" data-library-page="${libraryPage + 1}" ${libraryPage >= libraryTotalPages ? 'disabled' : ''}>Suivant</button>
+         </div>`
+      : '';
+  }
+
+  async function loadLibraryFacets() {
+    const facets = await fetchJson(`${API_BASE}/api/library/facets`);
+    libraryFacets = facets;
+    const shelfFilter = document.getElementById('libraryShelfFilter');
+    const selectedShelf = shelfFilter.value;
+    shelfFilter.innerHTML = '<option value="">Toutes les étagères</option>' +
+      facets.shelves.map((shelf) =>
+        `<option value="${escapeHTML(shelf.label)}">${escapeHTML(shelf.label)} (${shelf.count})</option>`
+      ).join('');
+    shelfFilter.value = facets.shelves.some((shelf) => shelf.label === selectedShelf) ? selectedShelf : '';
+  }
+
+  async function loadLibraryItems(page = libraryPage) {
+    const sequence = ++libraryLoadSequence;
+    const params = new URLSearchParams({ page: String(page), limit: String(LIBRARY_PAGE_SIZE) });
+    const search = document.getElementById('librarySearch').value.trim();
+    const shelf = document.getElementById('libraryShelfFilter').value.trim();
+    const type = document.getElementById('libraryTypeFilter').value;
+    const tag = libraryView === 'tags' ? librarySelectedTag : '';
+    if (search) params.set('search', search);
+    if (shelf) params.set('shelf', shelf);
+    if (type) params.set('type', type);
+    if (tag) params.set('tag', tag);
+
+    try {
+      const response = await apiFetch(`${API_BASE}/api/library?${params}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Chargement de la bibliothèque impossible.');
+      if (sequence !== libraryLoadSequence) return;
+      renderLibraryItems(payload, sequence);
+      setLibraryMessage(`${payload.total} archive(s)`);
+    } catch (err) {
+      if (err.message === 'unauthorized' || sequence !== libraryLoadSequence) return;
+      document.getElementById('libraryContent').innerHTML =
+        '<div class="empty-state">Erreur de chargement de la bibliothèque.</div>';
+      document.getElementById('libraryPager').innerHTML = '';
+      setLibraryMessage(err.message || 'Impossible de contacter le serveur.', 'err');
+    }
+  }
+
+  function renderLibraryFileInfo(kind, file) {
+    const info = document.getElementById(kind === 'cover' ? 'libraryCoverInfo' : 'libraryAttachmentInfo');
+    const choose = document.getElementById(kind === 'cover' ? 'libraryChooseCover' : 'libraryChooseAttachment');
+    if (!file) {
+      info.innerHTML = 'Aucun fichier';
+      return;
+    }
+    const size = Math.max(1, Math.round(file.fileSize / 1024));
+    info.innerHTML = `<span>${escapeHTML(file.fileName)}</span> · ${size} Ko
+      <button type="button" class="btn-action" data-library-file-action="download" data-kind="${kind}" data-id="${libraryEditingId}" data-file-name="${escapeHTML(file.fileName)}">Télécharger</button>
+      ${currentPermissions.has('archive')
+        ? `<button type="button" class="btn-action danger" data-library-file-action="remove" data-kind="${kind}" data-id="${libraryEditingId}">Retirer</button>`
+        : ''}`;
+    choose.textContent = kind === 'cover' ? 'Remplacer la couverture' : 'Remplacer le fichier';
+  }
+
+  async function loadLibraryFiles(itemId) {
+    libraryFileKinds.forEach((kind) => renderLibraryFileInfo(kind, null));
+    try {
+      const files = await fetchJson(`${API_BASE}/api/library/${itemId}/files`);
+      if (libraryEditingId !== itemId) return;
+      for (const kind of libraryFileKinds) {
+        renderLibraryFileInfo(kind, files.find((file) => file.kind === kind));
+      }
+    } catch (err) {
+      if (err.message !== 'unauthorized') {
+        setLibraryItemMessage(err.message || 'Impossible de charger les fichiers.', 'err');
+      }
+    }
+  }
+
+  function openLibraryItemModal(item = null) {
+    libraryEditingId = item ? item.id : null;
+    document.getElementById('libraryItemModalTitle').textContent = item ? 'Modifier l’archive' : 'Nouvelle archive';
+    document.getElementById('libraryItemTitle').value = item ? item.title : '';
+    document.getElementById('libraryItemAuthorReference').value = item ? item.authorReference || '' : '';
+    document.getElementById('libraryItemType').value = item ? item.type || 'Livre' : 'Livre';
+    document.getElementById('libraryItemShelf').value = item ? item.shelf || '' : '';
+    document.getElementById('libraryItemTags').value = item && Array.isArray(item.tags) ? item.tags.join(', ') : '';
+    document.getElementById('libraryItemNotes').value = item ? item.notes || '' : '';
+    document.getElementById('libraryFileFields').hidden = !item;
+    document.getElementById('libraryChooseCover').hidden = !currentPermissions.has('write');
+    document.getElementById('libraryChooseAttachment').hidden = !currentPermissions.has('write');
+    document.getElementById('libraryCoverInput').value = '';
+    document.getElementById('libraryAttachmentInput').value = '';
+    document.getElementById('libraryChooseCover').textContent = 'Choisir une image';
+    document.getElementById('libraryChooseAttachment').textContent = 'Joindre un fichier';
+    libraryFileKinds.forEach((kind) => renderLibraryFileInfo(kind, null));
+    setLibraryItemMessage('');
+    document.getElementById('libraryItemOverlay').style.display = 'flex';
+    document.getElementById('libraryItemTitle').focus();
+    if (item) loadLibraryFiles(item.id);
+  }
+
+  function closeLibraryItemModal() {
+    document.getElementById('libraryItemOverlay').style.display = 'none';
+    document.getElementById('libraryItemForm').reset();
+    libraryEditingId = null;
+  }
+
+  document.getElementById('libraryAddBtn').addEventListener('click', () => openLibraryItemModal());
+  document.getElementById('libraryItemClose').addEventListener('click', closeLibraryItemModal);
+  document.getElementById('libraryItemCancel').addEventListener('click', closeLibraryItemModal);
+  document.getElementById('libraryItemOverlay').addEventListener('click', (event) => {
+    if (event.target.id === 'libraryItemOverlay') closeLibraryItemModal();
+  });
+
+  document.getElementById('libraryItemForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = {
+      title: document.getElementById('libraryItemTitle').value.trim(),
+      authorReference: document.getElementById('libraryItemAuthorReference').value.trim(),
+      type: document.getElementById('libraryItemType').value,
+      shelf: document.getElementById('libraryItemShelf').value.trim(),
+      tags: document.getElementById('libraryItemTags').value.split(',').map((tag) => tag.trim()).filter(Boolean),
+      notes: document.getElementById('libraryItemNotes').value.trim()
+    };
+    const isEditing = libraryEditingId !== null;
+    const url = isEditing
+      ? `${API_BASE}/api/library/${libraryEditingId}`
+      : `${API_BASE}/api/library`;
+    setLibraryItemMessage('');
+
+    try {
+      const response = await apiFetch(url, {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setLibraryItemMessage(result.error || 'Enregistrement impossible.', 'err');
+        return;
+      }
+      closeLibraryItemModal();
+      await loadLibraryFacets();
+      await loadLibraryItems(isEditing ? libraryPage : 1);
+    } catch (err) {
+      if (err.message !== 'unauthorized') {
+        setLibraryItemMessage(err.message || 'Impossible de contacter le serveur.', 'err');
+      }
+    }
+  });
+
+  function setLibraryReaderMessage(message, kind = '') {
+    const element = document.getElementById('libraryReaderMessage');
+    element.textContent = message;
+    element.className = `modal-msg${kind ? ` ${kind}` : ''}`;
+  }
+
+  function resetLibraryReaderPreview() {
+    const frame = document.getElementById('libraryReaderFrame');
+    frame.hidden = true;
+    frame.src = 'about:blank';
+    const image = document.getElementById('libraryReaderImage');
+    image.hidden = true;
+    image.removeAttribute('src');
+    const text = document.getElementById('libraryReaderText');
+    text.hidden = true;
+    text.textContent = '';
+  }
+
+  function closeLibraryReader() {
+    libraryReaderSequence += 1;
+    document.getElementById('libraryReaderOverlay').style.display = 'none';
+    resetLibraryReaderPreview();
+    document.getElementById('libraryReaderDownload').hidden = true;
+    document.getElementById('libraryReaderDetails').textContent = '';
+    setLibraryReaderMessage('');
+    if (libraryReaderObjectUrl) URL.revokeObjectURL(libraryReaderObjectUrl);
+    libraryReaderObjectUrl = null;
+    libraryReaderFile = null;
+    if (libraryReaderTrigger && libraryReaderTrigger.isConnected) libraryReaderTrigger.focus();
+    libraryReaderTrigger = null;
+  }
+
+  function libraryPreviewType(file) {
+    const contentType = String(file.contentType || '').split(';')[0].trim().toLowerCase();
+    if (contentType === 'application/pdf' || contentType === 'text/plain' || contentType === 'text/csv' ||
+        /^image\/(jpeg|png|gif|webp)$/.test(contentType)) return contentType;
+    if (contentType !== 'application/octet-stream') return '';
+    const extension = String(file.fileName || '').toLowerCase().split('.').pop();
+    return ({
+      pdf: 'application/pdf',
+      txt: 'text/plain',
+      csv: 'text/csv',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp'
+    })[extension] || '';
+  }
+
+  async function showLibraryReaderFile(blob, file, sequence) {
+    if (sequence !== libraryReaderSequence) return;
+    libraryReaderFile = { blob, fileName: file.fileName };
+    document.getElementById('libraryReaderDownload').hidden = false;
+    const previewType = libraryPreviewType(file);
+    if (previewType === 'text/plain' || previewType === 'text/csv') {
+      document.getElementById('libraryReaderText').textContent = await blob.text();
+      if (sequence !== libraryReaderSequence) return;
+      document.getElementById('libraryReaderText').hidden = false;
+      setLibraryReaderMessage(file.fileName);
+      return;
+    }
+    if (previewType) {
+      const previewBlob = blob.type === previewType ? blob : new Blob([blob], { type: previewType });
+      libraryReaderObjectUrl = URL.createObjectURL(previewBlob);
+      if (previewType.startsWith('image/')) {
+        const image = document.getElementById('libraryReaderImage');
+        image.src = libraryReaderObjectUrl;
+        image.alt = `Aperçu de ${file.fileName}`;
+        image.hidden = false;
+      } else {
+        const frame = document.getElementById('libraryReaderFrame');
+        frame.src = libraryReaderObjectUrl;
+        frame.hidden = false;
+      }
+      setLibraryReaderMessage(file.fileName);
+      return;
+    }
+    setLibraryReaderMessage('Ce format ne peut pas être prévisualisé ici. Télécharge le fichier pour l’ouvrir avec une application compatible.');
+  }
+
+  async function openLibraryReader(item) {
+    const sequence = ++libraryReaderSequence;
+    libraryReaderTrigger = document.activeElement;
+    if (libraryReaderObjectUrl) URL.revokeObjectURL(libraryReaderObjectUrl);
+    libraryReaderObjectUrl = null;
+    libraryReaderFile = null;
+    resetLibraryReaderPreview();
+    document.getElementById('libraryReaderTitle').textContent = item.title;
+    document.getElementById('libraryReaderDetails').textContent = [
+      item.type || 'Livre',
+      item.authorReference,
+      item.shelf,
+      Array.isArray(item.tags) && item.tags.length ? item.tags.map((tag) => `#${tag}`).join(' ') : ''
+    ].filter(Boolean).join(' · ');
+    document.getElementById('libraryReaderDownload').hidden = true;
+    document.getElementById('libraryReaderOverlay').style.display = 'flex';
+    document.getElementById('libraryReaderClose').focus();
+    setLibraryReaderMessage('Chargement du document…');
+
+    try {
+      const files = await fetchJson(`${API_BASE}/api/library/${item.id}/files`);
+      if (sequence !== libraryReaderSequence) return;
+      const attachment = files.find((file) => file.kind === 'attachment');
+      const cover = files.find((file) => file.kind === 'cover');
+      const file = attachment || (item.hasCover ? cover : null);
+      if (file && file.available) {
+        const response = await apiFetch(`${API_BASE}/api/library/${item.id}/files/${file.kind}/download`);
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.error || 'Impossible de charger le document.');
+        }
+        await showLibraryReaderFile(await response.blob(), file, sequence);
+      } else if (item.notes) {
+        document.getElementById('libraryReaderText').textContent = item.notes;
+        document.getElementById('libraryReaderText').hidden = false;
+        setLibraryReaderMessage('Aucun fichier de lecture joint. Les notes de la fiche sont affichées.');
+      } else if (file) {
+        setLibraryReaderMessage('Le fichier est référencé, mais son contenu n’est pas disponible.');
+      } else {
+        setLibraryReaderMessage('Aucun fichier de lecture n’est joint à cette fiche.');
+      }
+    } catch (err) {
+      if (err.message !== 'unauthorized' && sequence === libraryReaderSequence) {
+        setLibraryReaderMessage(err.message || 'Impossible de charger le document.', 'err');
+      }
+    }
+  }
+
+  document.getElementById('libraryReaderClose').addEventListener('click', closeLibraryReader);
+  document.getElementById('libraryReaderOverlay').addEventListener('click', (event) => {
+    if (event.target.id === 'libraryReaderOverlay') closeLibraryReader();
+  });
+  document.getElementById('libraryReaderDownload').addEventListener('click', () => {
+    if (!libraryReaderFile) return;
+    const url = URL.createObjectURL(libraryReaderFile.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = libraryReaderFile.fileName;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && document.getElementById('libraryReaderOverlay').style.display === 'flex') {
+      closeLibraryReader();
+    }
+  });
+
+  document.getElementById('libraryContent').addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-library-action]');
+    const itemId = button ? Number(button.dataset.id) : Number(event.target.closest('[data-library-item]')?.dataset.libraryItem);
+    const item = libraryItems.find((entry) => entry.id === itemId);
+    if (!item) return;
+    const action = button ? button.dataset.libraryAction : 'read';
+    if (action === 'read') {
+      await openLibraryReader(item);
+      return;
+    }
+    if (button.dataset.libraryAction === 'edit') {
+      openLibraryItemModal(item);
+      return;
+    }
+    if (action !== 'delete') return;
+    if (!confirm(`Supprimer « ${item.title} » de la bibliothèque ? Cette action est définitive.`)) return;
+
+    button.disabled = true;
+    try {
+      const response = await apiFetch(`${API_BASE}/api/library/${item.id}`, { method: 'DELETE' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Suppression impossible.');
+      await loadLibraryFacets();
+      await loadLibraryItems(1);
+    } catch (err) {
+      if (err.message !== 'unauthorized') setLibraryMessage(err.message || 'Suppression impossible.', 'err');
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('libraryChooseCover').addEventListener('click', () => {
+    document.getElementById('libraryCoverInput').click();
+  });
+  document.getElementById('libraryChooseAttachment').addEventListener('click', () => {
+    document.getElementById('libraryAttachmentInput').click();
+  });
+
+  async function uploadLibraryFile(kind, file) {
+    if (!file) return;
+    if (file.size > LIBRARY_FILE_MAX_BYTES) {
+      setLibraryItemMessage('Fichier trop volumineux (4 Mo maximum).', 'err');
+      return;
+    }
+    if (kind === 'cover' && !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      setLibraryItemMessage('La couverture doit être une image JPEG, PNG, GIF ou WebP.', 'err');
+      return;
+    }
+    const button = document.getElementById(kind === 'cover' ? 'libraryChooseCover' : 'libraryChooseAttachment');
+    button.disabled = true;
+    setLibraryItemMessage('Téléversement du fichier…');
+    try {
+      const response = await apiFetch(`${API_BASE}/api/library/${libraryEditingId}/files/${kind}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-File-Name': encodeURIComponent(file.name),
+          'X-File-Type': encodeURIComponent(file.type || 'application/octet-stream')
+        },
+        body: await file.arrayBuffer()
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Téléversement impossible.');
+      renderLibraryFileInfo(kind, result);
+      setLibraryItemMessage('Fichier enregistré.', 'ok');
+    } catch (err) {
+      if (err.message !== 'unauthorized') setLibraryItemMessage(err.message || 'Téléversement impossible.', 'err');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  document.getElementById('libraryCoverInput').addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    uploadLibraryFile('cover', file);
+  });
+  document.getElementById('libraryAttachmentInput').addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    uploadLibraryFile('attachment', file);
+  });
+
+  document.getElementById('libraryItemOverlay').addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-library-file-action]');
+    if (!button) return;
+    const { kind, id } = button.dataset;
+    if (!libraryFileKinds.includes(kind) || Number(id) !== libraryEditingId) return;
+    button.disabled = true;
+    try {
+      if (button.dataset.libraryFileAction === 'download') {
+        const response = await apiFetch(`${API_BASE}/api/library/${id}/files/${kind}/download`);
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.error || 'Téléchargement impossible.');
+        }
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = button.dataset.fileName;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else if (button.dataset.libraryFileAction === 'remove' &&
+          confirm('Retirer ce fichier de l’archive ?')) {
+        const response = await apiFetch(`${API_BASE}/api/library/${id}/files/${kind}`, { method: 'DELETE' });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Suppression du fichier impossible.');
+        renderLibraryFileInfo(kind, null);
+        setLibraryItemMessage('Fichier retiré.', 'ok');
+      }
+    } catch (err) {
+      if (err.message !== 'unauthorized') setLibraryItemMessage(err.message || 'Action impossible.', 'err');
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('libraryPager').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-library-page]');
+    if (!button || button.disabled) return;
+    const page = Number(button.dataset.libraryPage);
+    if (Number.isInteger(page) && page >= 1 && page <= libraryTotalPages) loadLibraryItems(page);
+  });
+
+  const scheduleLibrarySearch = TableNav.debounce(() => loadLibraryItems(1), 200);
+  ['librarySearch', 'libraryShelfFilter', 'libraryTypeFilter'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', scheduleLibrarySearch);
+    document.getElementById(id).addEventListener('change', scheduleLibrarySearch);
+  });
+  document.querySelector('.library-tabs').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-library-view]');
+    if (!button) return;
+    libraryView = button.dataset.libraryView;
+    librarySelectedTag = '';
+    document.querySelectorAll('.library-tab').forEach((tab) => {
+      const active = tab === button;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', String(active));
+    });
+    loadLibraryItems(1);
+  });
+  document.getElementById('libraryTagCloud').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-library-tag]');
+    if (!button) return;
+    librarySelectedTag = librarySelectedTag === button.dataset.libraryTag ? '' : button.dataset.libraryTag;
+    loadLibraryItems(1);
+  });
+  document.getElementById('libraryReset').addEventListener('click', () => {
+    document.getElementById('librarySearch').value = '';
+    document.getElementById('libraryShelfFilter').value = '';
+    document.getElementById('libraryTypeFilter').value = '';
+    librarySelectedTag = '';
+    document.querySelectorAll('.library-tab').forEach((tab) => {
+      const active = tab.dataset.libraryView === 'shelves';
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', String(active));
+    });
+    libraryView = 'shelves';
+    loadLibraryItems(1);
+  });
+
   async function loadSourceView() {
     try {
       const [records, indicators] = await Promise.all([
@@ -2420,6 +3027,11 @@
     documents: async () => {
       await loadCurrentUser();
       await loadArchives();
+    },
+    library: async () => {
+      await loadCurrentUser();
+      await loadLibraryFacets();
+      await loadLibraryItems(1);
     },
     reports: async () => {
       await loadCurrentUser();

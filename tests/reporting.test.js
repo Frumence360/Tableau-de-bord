@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildDataReport, generateRecordsCsv, validateProjectPayload } = require('../db/queries');
+const {
+  buildDataReport,
+  generateRecordsCsv,
+  validateProjectPayload,
+  validateLibraryItemPayload
+} = require('../db/queries');
 
 test('buildDataReport aggregates records and archive status', () => {
   const report = buildDataReport([
@@ -42,6 +47,32 @@ test('validateProjectPayload rejects empty project data and accepts valid update
   const valid = validateProjectPayload({ title: 'Site vitrine', status: 'Livré', date: '2026-10-03' });
   assert.equal(valid.valid, true);
   assert.equal(valid.value.status, 'Livré');
+});
+
+test('validateLibraryItemPayload validates required fields and normalizes tags', () => {
+  const invalid = validateLibraryItemPayload({ title: '   ' });
+  assert.equal(invalid.valid, false);
+
+  const valid = validateLibraryItemPayload({
+    title: '  Contrats clients ',
+    type: 'Dossier',
+    authorReference: ' Service juridique ',
+    tags: ['#Clients', 'clients', '  2026  ']
+  });
+  assert.equal(valid.valid, true);
+  assert.deepEqual(valid.value, {
+    title: 'Contrats clients',
+    authorReference: 'Service juridique',
+    type: 'Dossier',
+    shelf: null,
+    tags: ['Clients', '2026'],
+    notes: null
+  });
+});
+
+test('validateLibraryItemPayload rejects invalid types and tag payloads', () => {
+  assert.equal(validateLibraryItemPayload({ title: 'Document', type: 'Unknown' }).valid, false);
+  assert.equal(validateLibraryItemPayload({ title: 'Document', tags: 'finance' }).valid, false);
 });
 
 test('role permissions and audit summary are computed correctly', () => {

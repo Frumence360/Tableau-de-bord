@@ -121,6 +121,262 @@ async function updateProject(id, { title, status, date, thumbGradient } = {}) {
   return rows[0] || null;
 }
 
+// ─── Bibliothèque ────────────────────────────────────────────────────────────
+
+function validateLibraryItemPayload(payload = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { valid: false, error: 'Les données de la fiche sont invalides.' };
+  }
+
+  const title = typeof payload.title === 'string' ? payload.title.trim() : '';
+  const type = payload.type === undefined ? 'Livre' : payload.type;
+  const allowedTypes = ['Livre', 'Document', 'Dossier', 'Rapport', 'Autre'];
+  if (!title) return { valid: false, error: 'Le titre est requis.' };
+  if (title.length > 500) return { valid: false, error: 'Le titre est limité à 500 caractères.' };
+  if (typeof type !== 'string' || !allowedTypes.includes(type)) {
+    return { valid: false, error: 'Le type de document est invalide.' };
+  }
+
+  const textFields = [
+    ['authorReference', 'L’auteur ou la référence', 500],
+    ['shelf', 'L’étagère', 255],
+    ['notes', 'Les notes', 10000]
+  ];
+  for (const [field, label, maxLength] of textFields) {
+    const value = payload[field];
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      return { valid: false, error: `${label} doit être du texte.` };
+    }
+    if (typeof value === 'string' && value.trim().length > maxLength) {
+      return { valid: false, error: `${label} est limité à ${maxLength} caractères.` };
+    }
+  }
+
+  const rawTags = payload.tags === undefined ? [] : payload.tags;
+  if (!Array.isArray(rawTags) || rawTags.length > 50 ||
+      rawTags.some((tag) => typeof tag !== 'string' || tag.trim().replace(/^#/, '').length > 100)) {
+    return { valid: false, error: 'Les tags doivent être une liste de 50 éléments maximum, limités à 100 caractères chacun.' };
+  }
+  const tags = [];
+  const seenTags = new Set();
+  for (const rawTag of rawTags) {
+    const tag = rawTag.trim().replace(/^#/, '');
+    const key = tag.toLocaleLowerCase('fr');
+    if (tag && !seenTags.has(key)) {
+      tags.push(tag);
+      seenTags.add(key);
+    }
+  }
+
+  return {
+    valid: true,
+    value: {
+      title,
+      authorReference: payload.authorReference ? payload.authorReference.trim() || null : null,
+      type,
+      shelf: payload.shelf ? payload.shelf.trim() || null : null,
+      tags,
+      notes: payload.notes ? payload.notes.trim() || null : null
+    }
+  };
+}
+
+function buildLibraryFilters(filters = {}) {
+  const conditions = [];
+  const params = [];
+  const add = (condition, value) => {
+    params.push(value);
+    conditions.push(condition.replace('$?', `$${params.length}`));
+  };
+
+  if (filters.search) {
+    params.push(`%${String(filters.search).trim()}%`);
+    const index = params.length;
+    conditions.push(`(
+      li.title ILIKE $${index} OR li.author_reference ILIKE $${index}
+      OR li.shelf ILIKE $${index} OR li.notes ILIKE $${index}
+      OR EXISTS (SELECT 1 FROM unnest(li.tags) AS tag(value) WHERE value ILIKE $${index})
+    )`);
+  }
+  if (filters.shelf) {
+    add(
+      "LOWER(COALESCE(NULLIF(BTRIM(li.shelf), ''), 'Sans étagère')) = LOWER($?)",
+      String(filters.shelf).trim()
+    );
+  }
+  if (filters.type) add('li.item_type = $?', String(filters.type).trim());
+  if (filters.tag) add('li.tags @> ARRAY[$?]::text[]', String(filters.tag).trim().replace(/^#/, ''));
+
+  return {
+    where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+    params
+  };
+}
+
+const LIBRARY_ITEM_COLUMNS = `li.id, li.title,
+  li.author_reference AS "authorReference", li.item_type AS type,
+  li.shelf, li.tags, li.notes, li.created_by AS "createdBy",
+  li.updated_by AS "updatedBy", li.created_at AS "createdAt",
+  li.updated_at AS "updatedAt",
+  EXISTS (SELECT 1 FROM library_item_files lf WHERE lf.item_id = li.id AND lf.file_kind = 'cover' AND lf.content IS NOT NULL) AS "hasCover",
+  EXISTS (SELECT 1 FROM library_item_files lf WHERE lf.item_id = li.id AND lf.file_kind = 'attachment' AND lf.content IS NOT NULL) AS "hasAttachment"`;
+
+async function getLibraryFacets() {
+  const [shelfResult, tagResult] = await Promise.all([
+    pool.query(
+      `SELECT COALESCE(NULLIF(BTRIM(shelf), ''), 'Sans étagère') AS label,
+              COUNT(*)::int AS count
+       FROM library_items
+       GROUP BY 1
+       ORDER BY 1`
+    ),
+    pool.query(
+      `SELECT tag AS label, COUNT(*)::int AS count
+       FROM library_items li
+       CROSS JOIN LATERAL unnest(li.tags) AS tags(tag)
+       WHERE BTRIM(tag) <> ''
+       GROUP BY tag
+       ORDER BY tag`
+    )
+  ]);
+  return {
+    shelves: shelfResult.rows,
+    tags: tagResult.rows
+  };
+}
+
+async function getLibraryItemsPage(filters = {}) {
+  const page = safePage(filters.page);
+  const limit = Math.min(safeLimit(filters.limit), 100);
+  const { where, params } = buildLibraryFilters(filters);
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM library_items li ${where}`,
+    params
+  );
+  const total = countResult.rows[0].total;
+  const offset = (page - 1) * limit;
+  const { rows } = await pool.query(
+    `SELECT ${LIBRARY_ITEM_COLUMNS}
+     FROM library_items li
+     ${where}
+     ORDER BY li.updated_at DESC, li.id DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset]
+  );
+  return { items: rows, page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) };
+}
+
+async function getLibraryItems() {
+  const { rows } = await pool.query(
+    `SELECT ${LIBRARY_ITEM_COLUMNS}
+     FROM library_items li
+     ORDER BY li.updated_at DESC, li.id DESC`
+  );
+  return rows;
+}
+
+async function getLibraryItem(id) {
+  const { rows } = await pool.query(
+    `SELECT ${LIBRARY_ITEM_COLUMNS}
+     FROM library_items li WHERE li.id = $1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+async function addLibraryItem(item, userId) {
+  const { rows } = await pool.query(
+    `INSERT INTO library_items
+       (title, author_reference, item_type, shelf, tags, notes, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+     RETURNING id, title, author_reference AS "authorReference",
+               item_type AS type, shelf, tags, notes,
+               created_by AS "createdBy", updated_by AS "updatedBy",
+               created_at AS "createdAt", updated_at AS "updatedAt"`,
+    [item.title, item.authorReference, item.type, item.shelf, item.tags, item.notes, userId]
+  );
+  return rows[0];
+}
+
+async function updateLibraryItem(id, item, userId) {
+  const { rows } = await pool.query(
+    `UPDATE library_items
+     SET title = $1, author_reference = $2, item_type = $3, shelf = $4,
+         tags = $5, notes = $6, updated_by = $7, updated_at = now()
+     WHERE id = $8
+     RETURNING id, title, author_reference AS "authorReference",
+               item_type AS type, shelf, tags, notes,
+               created_by AS "createdBy", updated_by AS "updatedBy",
+               created_at AS "createdAt", updated_at AS "updatedAt"`,
+    [item.title, item.authorReference, item.type, item.shelf, item.tags, item.notes, userId, id]
+  );
+  return rows[0] || null;
+}
+
+async function deleteLibraryItem(id) {
+  const { rows } = await pool.query(
+    'DELETE FROM library_items WHERE id = $1 RETURNING id, title',
+    [id]
+  );
+  return rows[0] || null;
+}
+
+async function saveLibraryItemFile({ itemId, kind, storageKey, fileName, contentType, content, uploadedBy }) {
+  const { rows } = await pool.query(
+    `INSERT INTO library_item_files
+       (item_id, file_kind, storage_key, file_name, content_type, content, file_size, uploaded_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (item_id, file_kind) DO UPDATE
+       SET storage_key = EXCLUDED.storage_key,
+           file_name = EXCLUDED.file_name,
+           content_type = EXCLUDED.content_type,
+           content = EXCLUDED.content,
+           file_size = EXCLUDED.file_size,
+           uploaded_by = EXCLUDED.uploaded_by,
+           created_at = now()
+     RETURNING id, item_id AS "itemId", file_kind AS kind,
+               file_name AS "fileName", content_type AS "contentType",
+               file_size AS "fileSize", uploaded_by AS "uploadedBy",
+               created_at AS "createdAt"`,
+    [itemId, kind, storageKey, fileName, contentType, content, content.length, uploadedBy]
+  );
+  return { ...rows[0], fileSize: Number(rows[0].fileSize) };
+}
+
+async function getLibraryItemFiles(itemId) {
+  const { rows } = await pool.query(
+    `SELECT id, item_id AS "itemId", file_kind AS kind,
+            file_name AS "fileName", content_type AS "contentType",
+            file_size AS "fileSize", uploaded_by AS "uploadedBy",
+            content IS NOT NULL AS available, created_at AS "createdAt"
+     FROM library_item_files WHERE item_id = $1 ORDER BY file_kind`,
+    [itemId]
+  );
+  return rows.map((row) => ({ ...row, fileSize: Number(row.fileSize) }));
+}
+
+async function getLibraryItemFile(itemId, kind) {
+  const { rows } = await pool.query(
+    `SELECT id, item_id AS "itemId", file_kind AS kind,
+            file_name AS "fileName", content_type AS "contentType",
+            content, file_size AS "fileSize"
+     FROM library_item_files WHERE item_id = $1 AND file_kind = $2`,
+    [itemId, kind]
+  );
+  if (!rows[0] || !rows[0].content) return null;
+  return { ...rows[0], fileSize: Number(rows[0].fileSize) };
+}
+
+async function deleteLibraryItemFile(itemId, kind) {
+  const { rows } = await pool.query(
+    `DELETE FROM library_item_files
+     WHERE item_id = $1 AND file_kind = $2
+     RETURNING id, item_id AS "itemId", file_kind AS kind, file_name AS "fileName"`,
+    [itemId, kind]
+  );
+  return rows[0] || null;
+}
+
 // ─── Clients ──────────────────────────────────────────────────────────────────
 
 async function getClients() {
@@ -1011,6 +1267,18 @@ module.exports = {
   deleteProject,
   validateProjectPayload,
   updateProject,
+  validateLibraryItemPayload,
+  getLibraryFacets,
+  getLibraryItemsPage,
+  getLibraryItems,
+  getLibraryItem,
+  addLibraryItem,
+  updateLibraryItem,
+  deleteLibraryItem,
+  saveLibraryItemFile,
+  getLibraryItemFiles,
+  getLibraryItemFile,
+  deleteLibraryItemFile,
   getClients,
   getOrders,
   getMessages,

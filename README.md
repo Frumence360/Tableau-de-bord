@@ -180,6 +180,10 @@ source. La paire source/référence est comparée sans tenir compte de la casse 
 des espaces extérieurs; le doublon est enregistré avec une anomalie et le
 statut `rejete` afin de préserver sa traçabilité.
 
+Dans la vue Bibliothèque, sélectionner une archive ouvre son lecteur intégré.
+Les PDF, images JPEG/PNG/GIF/WebP et fichiers texte/CSV sont prévisualisés;
+les autres formats restent téléchargeables depuis le lecteur.
+
 ## Routes disponibles
 
 | Méthode | Route                          | Auth | Description |
@@ -197,6 +201,17 @@ statut `rejete` afin de préserver sa traçabilité.
 | POST    | `/api/projects`                | Saisie | Ajouter un projet `{title, status, date}` |
 | PUT     | `/api/projects/:id`            | Saisie | Modifier un projet |
 | DELETE  | `/api/projects/:id`            | Saisie | Supprimer un projet |
+| GET     | `/api/library`                 | Oui  | Archives paginées, recherche et filtres |
+| GET     | `/api/library/facets`          | Oui  | Compteurs d’étagères et de tags pour la navigation |
+| GET     | `/api/library/:id`             | Oui  | Consulter une archive |
+| GET     | `/api/library/:id/files`        | Oui  | Lister couverture et fichier joint |
+| POST    | `/api/library/:id/files/:kind`  | Saisie | Téléverser `cover` ou `attachment` (4 Mo maximum) |
+| GET     | `/api/library/:id/files/:kind/download` | Oui | Télécharger un fichier de bibliothèque |
+| DELETE  | `/api/library/:id/files/:kind`  | Archivage | Retirer couverture ou fichier joint |
+| POST    | `/api/library`                 | Saisie | Créer une archive |
+| PUT     | `/api/library/:id`             | Saisie | Modifier une archive |
+| DELETE  | `/api/library/:id`             | Archivage | Supprimer une archive |
+| GET     | `/api/library/export.json`     | Export | Télécharger les fiches d'archives en JSON |
 | GET     | `/api/clients`                 | Oui  | Liste des clients |
 | GET     | `/api/orders`                  | Oui  | Liste des commandes |
 | GET     | `/api/messages`                | Oui  | Liste des messages |

@@ -86,3 +86,40 @@ test('remaining operational tabs use live API data and connected actions', () =>
   assert.doesNotMatch(source, /apiFetch\(`\$\{API_BASE\}\/api\/reports\/data\/export\.csv`\)/);
   assert.doesNotMatch(source, /42 anomalies|Exporter Excel|Enregistrer les préférences/);
 });
+
+test('la bibliothèque a une vue dédiée et utilise l’API protégée', () => {
+  for (const id of [
+    'librarySearch', 'libraryShelfFilter', 'libraryTypeFilter',
+    'libraryContent', 'libraryTagCloud', 'libraryPager', 'libraryAddBtn',
+    'libraryItemForm', 'libraryItemTitle', 'libraryItemTags', 'libraryItemNotes',
+    'libraryFileFields', 'libraryCoverInput', 'libraryAttachmentInput',
+    'libraryReaderOverlay', 'libraryReaderTitle', 'libraryReaderClose', 'libraryReaderDetails',
+    'libraryReaderMessage', 'libraryReaderFrame', 'libraryReaderImage', 'libraryReaderText',
+    'libraryReaderDownload'
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.match(appJs, /async function loadLibraryItems\(page = libraryPage\)/);
+  assert.match(appJs, /apiFetch\(`\$\{API_BASE\}\/api\/library\?\$\{params\}`\)/);
+  assert.match(html, /data-view="library"/);
+  assert.match(appJs, /library: async \(\) =>/);
+  assert.match(html, /data-library-view="shelves"/);
+  assert.match(html, /data-library-view="list"/);
+  assert.match(html, /data-library-view="tags"/);
+  assert.match(appJs, /async function loadLibraryFacets\(\)/);
+  assert.match(appJs, /async function openLibraryReader\(item\)/);
+  assert.match(appJs, /function libraryPreviewType\(file\)/);
+  assert.match(appJs, /data-library-action="read"/);
+  assert.match(appJs, /\/api\/library\/\$\{item\.id\}\/files\/cover\/download/);
+  assert.match(appJs, /method: isEditing \? 'PUT' : 'POST'/);
+  assert.match(appJs, /method: 'DELETE'/);
+  assert.doesNotMatch(html, /libraryExportBtn|Exporter JSON/);
+  assert.doesNotMatch(appJs, /libraryExportBtn|\/api\/library\/export\.json/);
+  assert.match(appJs, /currentPermissions\.has\('write'\)/);
+  assert.match(appJs, /currentPermissions\.has\('archive'\)/);
+  assert.match(appJs, /currentPermissions\.has\('export'\)/);
+  assert.match(appJs, /async function uploadLibraryFile\(kind, file\)/);
+  assert.match(appJs, /4 \* 1024 \* 1024/);
+  assert.match(appJs, /\/api\/library\/\$\{libraryEditingId\}\/files\/\$\{kind\}/);
+  assert.match(appJs, /\/files\/\$\{kind\}\/download/);
+});

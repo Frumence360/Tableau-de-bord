@@ -102,6 +102,45 @@ CREATE TABLE IF NOT EXISTS record_attachments (
 CREATE INDEX IF NOT EXISTS idx_record_attachments_record_id
   ON record_attachments (record_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS library_items (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  author_reference TEXT,
+  item_type TEXT NOT NULL DEFAULT 'Livre',
+  shelf TEXT,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_library_items_shelf
+  ON library_items (shelf);
+
+CREATE INDEX IF NOT EXISTS idx_library_items_tags
+  ON library_items USING GIN (tags);
+
+CREATE TABLE IF NOT EXISTS library_item_files (
+  id SERIAL PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES library_items(id) ON DELETE CASCADE,
+  file_kind TEXT NOT NULL CHECK (file_kind IN ('cover', 'attachment')),
+  storage_key TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  content_type TEXT,
+  content BYTEA,
+  file_size BIGINT NOT NULL CHECK (file_size >= 0),
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE library_item_files
+  ADD COLUMN IF NOT EXISTS content BYTEA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_library_item_files_kind
+  ON library_item_files (item_id, file_kind);
+
 CREATE INDEX IF NOT EXISTS idx_data_records_source_reference_ci
   ON data_records (LOWER(BTRIM(source)), LOWER(BTRIM(reference)))
   WHERE reference IS NOT NULL;
