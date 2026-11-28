@@ -65,8 +65,7 @@ const requirePermission = (permission) => (req, res, next) => {
 };
 
 if (!process.env.JWT_SECRET) {
-  console.error('❌ JWT_SECRET manquant. Copie .env.example en .env et remplis-le.');
-  process.exit(1);
+  console.error('⚠️ JWT_SECRET manquant. L’authentification restera indisponible jusqu’à son ajout.');
 }
 
 const app = express();
@@ -165,6 +164,33 @@ const adminLimiter = rateLimit({
   max: 10,
   message: { error: 'Trop de requêtes d\'administration. Réessaie dans une minute.' }
 });
+
+// Santé du déploiement : utile aux plateformes serverless et à la supervision.
+app.get('/api/health', asyncRoute(async (req, res) => {
+  const health = {
+    status: 'ok',
+    database: 'ok',
+    jwt: process.env.JWT_SECRET ? 'configured' : 'missing'
+  };
+
+  if (!db) {
+    health.status = 'unavailable';
+    health.database = 'missing_database_url';
+    return res.status(503).json(health);
+  }
+
+  try {
+    await db.query('SELECT 1');
+  } catch (err) {
+    health.status = 'unavailable';
+    health.database = 'connection_error';
+  }
+
+  if (health.status !== 'ok' || !process.env.JWT_SECRET) {
+    return res.status(503).json(health);
+  }
+  res.json(health);
+}));
 
 // Routes d'authentification (non protégées sauf /me et /change-password)
 app.use('/api/auth', authRoutes);

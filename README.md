@@ -80,6 +80,9 @@ système de fichiers éphémère des fonctions.
    l’environnement local d’administration.
 5. Déploie d’abord un Preview, teste connexion, saisie, export et import avec
    de petits fichiers; puis promeus en Production.
+6. Vérifie `https://<domaine>/api/health`. La réponse doit être HTTP 200 avec
+   `database: "ok"` et `jwt: "configured"`. Un HTTP 503 indique les variables
+   `DATABASE_URL` ou `JWT_SECRET` à corriger.
 
 Ne lance pas `npm run seed` sur une base de production vide sauf si tu souhaites
 également insérer les exemples clients, commandes et statistiques. Vercel ajoute
@@ -188,6 +191,7 @@ les autres formats restent téléchargeables depuis le lecteur.
 
 | Méthode | Route                          | Auth | Description |
 |---------|--------------------------------|------|-------------|
+| GET     | `/api/health`                  | Non  | Vérifie la base PostgreSQL et la configuration JWT |
 | POST    | `/api/auth/login`              | Non  | Connexion, retourne un token JWT |
 | GET     | `/api/auth/me`                 | Oui  | Vérifie/retourne l'utilisateur du token |
 | POST    | `/api/auth/change-password`    | Oui  | `{currentPassword, newPassword}` → nouveau `token` |

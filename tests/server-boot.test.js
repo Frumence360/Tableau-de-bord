@@ -47,6 +47,14 @@ test('le limiteur d\'écriture référencé par les routes est bien défini', ()
   assert.match(source, /const adminLimiter = rateLimit\(/);
 });
 
+test('la route de santé diagnostique la base et JWT sans quitter le processus', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../server.js'), 'utf8');
+  assert.match(source, /app\.get\('\/api\/health'/);
+  assert.match(source, /missing_database_url/);
+  assert.match(source, /connection_error/);
+  assert.doesNotMatch(source, /JWT_SECRET manquant[^]*process\.exit\(1\)/);
+});
+
 test('les routes des pièces jointes et leur limite de taille sont configurées', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../server.js'), 'utf8');
   assert.match(source, /const MAX_RECORD_ATTACHMENT_BYTES = 4 \* 1024 \* 1024/);
